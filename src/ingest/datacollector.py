@@ -2,6 +2,7 @@ import socket
 import struct
 import csv
 import os
+import datetime
 
 class datacollector:
     def __init__(self, ip='127.0.0.1', port=5300):
@@ -13,6 +14,9 @@ class datacollector:
         self.current_lap_number = -1
         self.output_file = None
         self.csv_writer = None
+
+        self.output_dir = "data/raw/session " + datetime.datetime.now().strftime("%Y-%m-%d %H-%M")
+        os.makedirs(self.output_dir, exist_ok=True)
 
         self.format_string = (
             "<iI"    # 8 bytes 
@@ -175,9 +179,7 @@ class datacollector:
             
         self.current_lap_number = lap_num
         
-        os.makedirs("data/raw", exist_ok=True)
-        
-        filename = f"data/raw/lap_{lap_num}.csv"
+        filename = self.output_dir + f"/lap_{lap_num}.csv"
         print(f"Recording new lap detected: Lap {lap_num}")
         
         self.output_file = open(filename, 'w', newline='')
