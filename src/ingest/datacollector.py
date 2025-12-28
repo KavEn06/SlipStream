@@ -1,39 +1,21 @@
 import socket
 import struct
+import csv
+import os
 
-# To check if the byte size received matches expected size
-def receive_forza_byte_size(ip='127.0.0.1', port=5300):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((ip, port))
-    
-    while True:
-        data, addr = sock.recvfrom(1024)  # Adjust buffer size if needed
-        print(f"Received data length: {len(data)} bytes")
+class datacollector:
+    def __init__(self, ip='127.0.0.1', port=5300):
+        self.ip = ip 
+        self.port = port
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind((self.ip, self.port))
 
-        # Compare with expected length (332 bytes in this case)
-        if len(data) == 332:
-            unpacked_data = struct.unpack(format_string, data)
-            # Handle unpacked data
-        else:
-            print(f"Unexpected data length: {len(data)}. Expected 332 bytes.")
+        self.current_lap_number = -1
+        self.output_file = None
+        self.csv_writer = None
 
-#Recieve and unpack Forza telemetry data
-def receive_forza_telemetry(ip='127.0.0.1', port=5300):
-    # Create a UDP socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    
-    # Bind the socket to the specified IP and port
-    sock.bind((ip, port))
-    
-    print(f"Listening for Forza telemetry data on {ip}:{port}...")
-
-    # Infinite loop to continuously receive telemetry data
-    while True:
-        # Receive the data from Forza
-        data, address = sock.recvfrom(1024)  # Buffer size of 1024 bytes
-        
-        format_string = (
-            "<iI"    # 8 bytes (explicit packing, no alignment)
+        self.format_string = (
+            "<iI"    # 8 bytes 
             "4f"     # 16 bytes
             "3f"     # 12 bytes
             "3f"     # 12 bytes
@@ -78,15 +60,11 @@ def receive_forza_telemetry(ip='127.0.0.1', port=5300):
             "4f"     # 16 bytes
             "i"      # 4 bytes
         )
-        
-        # total_size = struct.calcsize(format_string)
-        # print(f"Total calculated size with explicit packing: {total_size} bytes")
-        # print(f"Received data length: {len(data)} bytes")
-        # Unpack the data based on the defined structure
-        unpacked_data = struct.unpack(format_string, data)
-        
-        # Map the unpacked data to meaningful names
-        telemetry_data = {
+
+    def process_packet(self, data):
+        unpacked_data = struct.unpack(self.format_string, data[:struct.calcsize(self.format_string)])
+
+        telemetry = {
             "IsRaceOn": unpacked_data[0],
             "TimestampMS": unpacked_data[1],
             "EngineMaxRpm": unpacked_data[2],
@@ -179,12 +157,46 @@ def receive_forza_telemetry(ip='127.0.0.1', port=5300):
             "TrackOrdinal": unpacked_data[89],
         }
 
-        # Print the telemetry data for testing purposes
-        print(telemetry_data["CurrentEngineRpm"])
-        print("\033[H\033[2J")
+        # if racing
+        if telemetry["IsRaceOn"] == 0:
+            return
 
+        # when new lap 
+        if telemetry["LapNumber"] != self.current_lap_number:
+            self.start_new_lap_file(telemetry["LapNumber"], list(telemetry.keys()))
+        
+        # save data 
+        if self.csv_writer:
+            self.csv_writer.writerow(telemetry.values())
 
+    def start_new_lap_file(self, lap_num, headers):
+        if self.output_file:
+            self.output_file.close()
+            
+        self.current_lap_number = lap_num
+        
+        os.makedirs("data/raw", exist_ok=True)
+        
+        filename = f"data/raw/lap_{lap_num}.csv"
+        print(f"Recording new lap detected: Lap {lap_num}")
+        
+        self.output_file = open(filename, 'w', newline='')
+        self.csv_writer = csv.writer(self.output_file)
+        
+        self.csv_writer.writerow(headers)
 
+    def run(self):
+        print(f"Listening for Forza telemetry on {self.ip}:{self.port}...")
+        try:
+            while True:
+                data, addr = self.sock.recvfrom(1024)
+                if len(data) >= 311:
+                    self.process_packet(data)
+        except KeyboardInterrupt:
+            if self.output_file:
+                self.output_file.close()
+            print("\nStopped logging.")
 
-# Call the function to start listening for telemetry data
-receive_forza_telemetry()
+if __name__ == "__main__":
+    logger = datacollector()
+    logger.run()
