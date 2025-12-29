@@ -1,6 +1,9 @@
 import socket
 import struct
+
 import csv
+import json
+
 import os
 import datetime
 
@@ -15,7 +18,11 @@ class datacollector:
         self.output_file = None
         self.csv_writer = None
 
-        self.output_dir = "data/raw/session " + datetime.datetime.now().strftime("%Y-%m-%d %H-%M")
+        self.car_ordinal = None
+        self.track_ordinal = None
+
+        self.session_timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.output_dir = "data/raw/session_" + self.session_timestamp
         os.makedirs(self.output_dir, exist_ok=True)
 
         self.format_string = (
@@ -161,6 +168,9 @@ class datacollector:
             "TrackOrdinal": unpacked_data[89],
         }
 
+        self.car_ordinal = telemetry["CarOrdinal"]
+        self.track_ordinal = telemetry["TrackOrdinal"]
+
         # if racing
         if telemetry["IsRaceOn"] == 0:
             return
@@ -187,6 +197,31 @@ class datacollector:
         
         self.csv_writer.writerow(headers)
 
+    def end_collection(self):
+        if self.output_file:
+            self.output_file.close()
+
+            metadata = {
+                "session_id": "Session: " + self.session_timestamp,
+                "sim": "Forza Motorsport",
+                "date": self.session_timestamp.split('_')[0],
+                "car": self.car_ordinal,
+                "track": self.track_ordinal,
+                "total_laps": self.current_lap_number,
+                "notes": ""
+            }
+
+            with open(self.output_dir + "/metadata.json", "w") as json_file:
+                json.dump(metadata, json_file, indent=4)
+            
+            self.output_file = None
+            self.csv_writer = None
+            self.current_lap_number = -1
+            self.car_ordinal = None
+            self.track_ordinal = None
+
+
+
     def run(self):
         print(f"Listening for Forza telemetry on {self.ip}:{self.port}...")
         try:
@@ -195,8 +230,7 @@ class datacollector:
                 if len(data) >= 311:
                     self.process_packet(data)
         except KeyboardInterrupt:
-            if self.output_file:
-                self.output_file.close()
+            self.endReading()
             print("\nStopped logging.")
 
 if __name__ == "__main__":
