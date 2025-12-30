@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-def calculate_distance(csv_path):
+""" def calculate_distance(csv_path):
     df = pd.read_csv(csv_path)
 
     positions = ['PostionX', 'PositionY', 'PositionZ']
@@ -16,6 +16,25 @@ def calculate_distance(csv_path):
         distance.append(distance[i-1] + step_distance)
 
     df['Distance'] = distance
+    df.to_csv(csv_path, index=False) """
+
+def calculate_distance(csv_path):
+    df = pd.read_csv(csv_path)
+
+    positions_columns = ['PostionX', 'PositionY', 'PositionZ']
+
+    for col in positions_columns:
+        if col not in df.columns:
+            raise ValueError(f"Missing {col}")
+        
+    dx = df['PostionX'] - df['PostionX'].shift(1)
+    dy = df['PositionY'] - df['PositionY'].shift(1)
+    dz = df['PositionZ'] - df['PositionZ'].shift(1)
+
+    df['StepDistance'] = np.sqrt(dx**2 + dy**2 + dz**2)  
+    df['StepDistance'].fillna(0.0, inplace=True)
+
+    df['Distance'] = df['StepDistance'].cumsum()
+    df.drop(columns=['StepDistance'], inplace=True)
+
     df.to_csv(csv_path, index=False)
-
-
