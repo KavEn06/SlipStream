@@ -20,8 +20,8 @@ import constants
     df.to_csv(csv_path, index=False) """
 
 def calculate_distance(lap_name):
-    csv_path = "data/raw/session_" + constants.SESSION_ID_PREFIX + "/" + lap_name
-    df = pd.read_csv(csv_path)
+    raw_filepath = "data/raw/session_" + constants.SESSION_ID_PREFIX + "/" + lap_name
+    df = pd.read_csv(raw_filepath)
 
     positions_columns = ['PostionX', 'PositionY', 'PositionZ']
 
@@ -41,11 +41,11 @@ def calculate_distance(lap_name):
 
     df['DistanceNorm'] = df['Distance'] / df['Distance'].iloc[-1]
 
-    df.to_csv(csv_path, index=False)
+    df.to_csv(raw_filepath, index=False)
 
 def resample(lap_name, interval=0.001):
-    csv_path = "data/raw/session_" + constants.SESSION_ID_PREFIX + "/" + lap_name
-    df = pd.read_csv(csv_path)
+    raw_filepath = "data/raw/session_" + constants.SESSION_ID_PREFIX + "/" + lap_name
+    df = pd.read_csv(raw_filepath)
 
     processed_filepath = "data/processed/session_" + constants.SESSION_ID_PREFIX + "/" + lap_name
     resampled_df = pd.DataFrame()
