@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import constants
 
 """ def calculate_distance(csv_path):
     df = pd.read_csv(csv_path)
@@ -37,4 +38,14 @@ def calculate_distance(csv_path):
     df['Distance'] = df['StepDistance'].cumsum()
     df.drop(columns=['StepDistance'], inplace=True)
 
+    df['DistanceNorm'] = df['Distance'] / df['Distance'].iloc[-1]
+
     df.to_csv(csv_path, index=False)
+
+def resample(csv_path, interval=0.001):
+    df = pd.read_csv(csv_path)
+
+
+
+
+output_dir = "data/raw/session_" + constants.SESSION_ID_PREFIX
