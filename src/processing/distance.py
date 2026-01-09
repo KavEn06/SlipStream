@@ -52,7 +52,7 @@ def resample(lap_name, interval=0.001):
 
     #distancenorm is intervals and actual distance will be laplength times distancenorm
     resample_signals = ['CurrentEngineRpm', 'Speed', 'Power', 'Torque', 'Boost', 'Accel', 'Brake', 'Steer']
-
+>
     intervals = np.linspace(0, 1, int(1/interval))
 
     resampled_df['DistanceNorm'] = intervals
@@ -62,8 +62,3 @@ def resample(lap_name, interval=0.001):
         resampled_df[signal] = np.interp(intervals, df['DistanceNorm'], df[signal])
     
     resampled_df.to_csv(processed_filepath, index=False)
-
-
-
-
-output_dir = "data/raw/session_" + constants.SESSION_ID_PREFIX
