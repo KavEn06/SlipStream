@@ -1,239 +1,244 @@
-import socket
-import struct
+from __future__ import annotations
+
+import argparse
 import csv
 import json
-import os
-import datetime
-import constants
+import socket
+import struct
+from dataclasses import replace
+from datetime import datetime, timezone
+from pathlib import Path
+
+from src.config import DEFAULT_LISTEN_IP, DEFAULT_LISTEN_PORT, DEFAULT_SIM_NAME, get_session_paths
+from src.schemas import RAW_LAP_COLUMNS, SCHEMA_VERSION, SessionMetadata
+from src.tracks import get_track_metadata
+
+
+class ForzaTelemetryDecoder:
+    """Decode the Forza Data Out packet into a stable raw lap schema."""
+
+    format_string = (
+        "<iI"
+        "4f"
+        "3f"
+        "3f"
+        "3f"
+        "3f"
+        "3f"
+        "4f"
+        "4f"
+        "4i"
+        "4f"
+        "4f"
+        "4f"
+        "4f"
+        "4f"
+        "i"
+        "i"
+        "i"
+        "i"
+        "i"
+        "3f"
+        "f"
+        "f"
+        "f"
+        "4f"
+        "f"
+        "f"
+        "f"
+        "f"
+        "f"
+        "f"
+        "f"
+        "H"
+        "B"
+        "B"
+        "B"
+        "B"
+        "B"
+        "B"
+        "b"
+        "b"
+        "b"
+        "4f"
+        "i"
+    )
+    packet_size = struct.calcsize(format_string)
+
+    field_map = {
+        "IsRaceOn": 0,
+        "TimestampMS": 1,
+        "EngineMaxRpm": 2,
+        "EngineIdleRpm": 3,
+        "CurrentEngineRpm": 4,
+        "CarOrdinal": 53,
+        "PositionX": 58,
+        "PositionY": 59,
+        "PositionZ": 60,
+        "Speed": 61,
+        "Power": 62,
+        "Torque": 63,
+        "Boost": 68,
+        "DistanceTraveled": 70,
+        "BestLap": 71,
+        "LastLap": 72,
+        "CurrentLap": 73,
+        "CurrentRaceTime": 74,
+        "LapNumber": 75,
+        "Accel": 77,
+        "Brake": 78,
+        "Clutch": 79,
+        "HandBrake": 80,
+        "Gear": 81,
+        "Steer": 82,
+        "TrackOrdinal": 89,
+    }
+
+    def decode_packet(self, data: bytes) -> dict[str, float | int]:
+        if len(data) < self.packet_size:
+            raise ValueError(f"Packet too small: expected {self.packet_size} bytes, got {len(data)}")
+
+        unpacked_data = struct.unpack(self.format_string, data[: self.packet_size])
+        telemetry = {field: unpacked_data[index] for field, index in self.field_map.items()}
+        telemetry["LapNumber"] = int(telemetry["LapNumber"])
+        telemetry["CarOrdinal"] = int(telemetry["CarOrdinal"])
+        telemetry["TrackOrdinal"] = int(telemetry["TrackOrdinal"])
+        telemetry["Gear"] = int(telemetry["Gear"])
+        telemetry["IsRaceOn"] = int(telemetry["IsRaceOn"])
+        telemetry["TimestampMS"] = int(telemetry["TimestampMS"])
+        return telemetry
 
 
 class datacollector:
-    def __init__(self, ip='127.0.0.1', port=5300):
-        self.ip = ip 
+    def __init__(self, ip: str = DEFAULT_LISTEN_IP, port: int = DEFAULT_LISTEN_PORT, session_id: str | None = None):
+        self.ip = ip
         self.port = port
+        self.decoder = ForzaTelemetryDecoder()
+        self.session_paths = get_session_paths(session_id)
+        self.output_dir = str(self.session_paths.raw_dir)
+        self.session_paths.raw_dir.mkdir(parents=True, exist_ok=True)
+        self.session_paths.processed_dir.mkdir(parents=True, exist_ok=True)
+
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((self.ip, self.port))
 
         self.current_lap_number = -1
         self.output_file = None
         self.csv_writer = None
+        self.completed_laps: set[int] = set()
+        self.row_count = 0
 
-        self.car_ordinal = None
-        self.track_ordinal = None
-
-        self.session_timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-        self.output_dir = "data/raw/session_" + constants.SESSION_ID_PREFIX
-        os.makedirs(self.output_dir, exist_ok=True)
-
-        self.format_string = (
-            "<iI"    # 8 bytes 
-            "4f"     # 16 bytes
-            "3f"     # 12 bytes
-            "3f"     # 12 bytes
-            "3f"     # 12 bytes
-            "3f"     # 12 bytes
-            "3f"     # 12 bytes
-            "4f"     # 16 bytes
-            "4f"     # 16 bytes
-            "4i"     # 16 bytes
-            "4f"     # 16 bytes
-            "4f"     # 16 bytes
-            "4f"     # 16 bytes
-            "4f"     # 16 bytes
-            "4f"     # 16 bytes
-            "i"      # 4 bytes
-            "i"      # 4 bytes
-            "i"      # 4 bytes
-            "i"      # 4 bytes
-            "i"      # 4 bytes
-            "3f"     # 12 bytes
-            "f"      # 4 bytes
-            "f"      # 4 bytes
-            "f"      # 4 bytes
-            "4f"     # 16 bytes
-            "f"      # 4 bytes
-            "f"      # 4 bytes
-            "f"      # 4 bytes
-            "f"      # 4 bytes
-            "f"      # 4 bytes
-            "f"      # 4 bytes
-            "f"      # 4 bytes
-            "H"      # 2 bytes
-            "B"      # 1 byte
-            "B"      # 1 byte
-            "B"      # 1 byte
-            "B"      # 1 byte
-            "B"      # 1 byte
-            "B"      # 1 byte
-            "b"      # 1 byte
-            "b"      # 1 byte
-            "b"      # 1 byte
-            "4f"     # 16 bytes
-            "i"      # 4 bytes
+        self.car_ordinal: int | None = None
+        self.track_ordinal: int | None = None
+        self.created_at_utc = datetime.now(timezone.utc).isoformat()
+        self.metadata = SessionMetadata(
+            session_id=self.session_paths.session_id,
+            schema_version=SCHEMA_VERSION,
+            sim=DEFAULT_SIM_NAME,
+            created_at_utc=self.created_at_utc,
+            capture_ip=self.ip,
+            capture_port=self.port,
+            car_ordinal=None,
+            track_ordinal=None,
+            track_circuit=None,
+            track_layout=None,
+            track_location=None,
+            track_length_m=None,
+            total_laps=0,
+            notes="",
         )
 
-    def process_packet(self, data):
-        unpacked_data = struct.unpack(self.format_string, data[:struct.calcsize(self.format_string)])
+    def process_packet(self, data: bytes) -> None:
+        telemetry = self.decoder.decode_packet(data)
+        self.record_telemetry(telemetry)
 
-        telemetry = {
-            "IsRaceOn": unpacked_data[0],
-            "TimestampMS": unpacked_data[1],
-            "EngineMaxRpm": unpacked_data[2],
-            "EngineIdleRpm": unpacked_data[3],
-            "CurrentEngineRpm": unpacked_data[4],
-            #"AccelerationX": unpacked_data[5],
-            #"AccelerationY": unpacked_data[6],
-            #"AccelerationZ": unpacked_data[7],
-            #"VelocityX": unpacked_data[8],
-            #"VelocityY": unpacked_data[9],
-            #"VelocityZ": unpacked_data[10],
-            #"AngularVelocityX": unpacked_data[11],
-            #"AngularVelocityY": unpacked_data[12],
-            #"AngularVelocityZ": unpacked_data[13],
-            #"Yaw": unpacked_data[14],
-            #"Pitch": unpacked_data[15],
-            #"Roll": unpacked_data[16],
-            #"NormalizedSuspensionTravelFrontLeft": unpacked_data[17],
-            #"NormalizedSuspensionTravelFrontRight": unpacked_data[18],
-            #"NormalizedSuspensionTravelRearLeft": unpacked_data[19],
-            #"NormalizedSuspensionTravelRearRight": unpacked_data[20],
-            #"TireSlipRatioFrontLeft": unpacked_data[21],
-            #"TireSlipRatioFrontRight": unpacked_data[22],
-            #"TireSlipRatioRearLeft": unpacked_data[23],
-            #"TireSlipRatioRearRight": unpacked_data[24],
-            #"WheelRotationSpeedFrontLeft": unpacked_data[25],
-            #"WheelRotationSpeedFrontRight": unpacked_data[26],
-            #"WheelRotationSpeedRearLeft": unpacked_data[27],
-            #"WheelRotationSpeedRearRight": unpacked_data[28],
-            #"WheelOnRumbleStripFrontLeft": unpacked_data[29],
-            #"WheelOnRumbleStripFrontRight": unpacked_data[30],
-            #"WheelOnRumbleStripRearLeft": unpacked_data[31],
-            #"WheelOnRumbleStripRearRight": unpacked_data[32],
-            #"WheelInPuddleDepthFrontLeft": unpacked_data[33],
-            #"WheelInPuddleDepthFrontRight": unpacked_data[34],
-            #"WheelInPuddleDepthRearLeft": unpacked_data[35],
-            #"WheelInPuddleDepthRearRight": unpacked_data[36],
-            #"SurfaceRumbleFrontLeft": unpacked_data[37],
-            #"SurfaceRumbleFrontRight": unpacked_data[38],
-            #"SurfaceRumbleRearLeft": unpacked_data[39],
-            #"SurfaceRumbleRearRight": unpacked_data[40],
-            #"TireSlipAngleFrontLeft": unpacked_data[41],
-            #"TireSlipAngleFrontRight": unpacked_data[42],
-            #"TireSlipAngleRearLeft": unpacked_data[43],
-            #"TireSlipAngleRearRight": unpacked_data[44],
-            #"TireCombinedSlipFrontLeft": unpacked_data[45],
-            #"TireCombinedSlipFrontRight": unpacked_data[46],
-            #"TireCombinedSlipRearLeft": unpacked_data[47],
-            #"TireCombinedSlipRearRight": unpacked_data[48],
-            #"SuspensionTravelMetersFrontLeft": unpacked_data[49],
-            #"SuspensionTravelMetersFrontRight": unpacked_data[50],
-            #"SuspensionTravelMetersRearLeft": unpacked_data[51],
-            #"SuspensionTravelMetersRearRight": unpacked_data[52],
-            "CarOrdinal": unpacked_data[53],
-            #"CarClass": unpacked_data[54],
-            #"CarPerformanceIndex": unpacked_data[55],
-            #"DrivetrainType": unpacked_data[56],
-            #"NumCylinders": unpacked_data[57],
-            "PositionX": unpacked_data[58],
-            "PositionY": unpacked_data[59],
-            "PositionZ": unpacked_data[60],
-            "Speed": unpacked_data[61],
-            "Power": unpacked_data[62],
-            "Torque": unpacked_data[63],
-            #"TireTempFrontLeft": unpacked_data[64],
-            #"TireTempFrontRight": unpacked_data[65],
-            #"TireTempRearLeft": unpacked_data[66],
-            #"TireTempRearRight": unpacked_data[67],
-            "Boost": unpacked_data[68],
-            #"Fuel": unpacked_data[69],
-            "DistanceTraveled": unpacked_data[70],
-            "BestLap": unpacked_data[71],
-            "LastLap": unpacked_data[72],
-            "CurrentLap": unpacked_data[73],
-            "CurrentRaceTime": unpacked_data[74],
-            "LapNumber": unpacked_data[75],
-            #"RacePosition": unpacked_data[76],
-            "Accel": unpacked_data[77],
-            "Brake": unpacked_data[78],
-            "Clutch": unpacked_data[79],
-            "HandBrake": unpacked_data[80],
-            "Gear": unpacked_data[81],
-            "Steer": unpacked_data[82],
-            #"NormalizedDrivingLine": unpacked_data[83],
-            #"NormalizedAIBrakeDifference": unpacked_data[84],
-            #"TireWearFrontLeft": unpacked_data[85],
-            #"TireWearFrontRight": unpacked_data[86],
-            #"TireWearRearLeft": unpacked_data[87],
-            #"TireWearRearRight": unpacked_data[88],
-            "TrackOrdinal": unpacked_data[89],
-        }
-
-        self.car_ordinal = telemetry["CarOrdinal"]
-        self.track_ordinal = telemetry["TrackOrdinal"]
-
-        # if racing
+    def record_telemetry(self, telemetry: dict[str, float | int]) -> None:
         if telemetry["IsRaceOn"] == 0:
             return
 
-        # when new lap 
-        if telemetry["LapNumber"] != self.current_lap_number:
-            self.start_new_lap_file(telemetry["LapNumber"], list(telemetry.keys()))
-        
-        # save data 
-        if self.csv_writer:
-            self.csv_writer.writerow(telemetry.values())
+        self._update_metadata_from_telemetry(telemetry)
+        lap_number = int(telemetry["LapNumber"])
 
-    def start_new_lap_file(self, lap_num, headers):
-        if self.output_file:
-            self.output_file.close()
-            
+        if self.current_lap_number == -1:
+            self.start_new_lap_file(lap_number)
+        elif lap_number != self.current_lap_number:
+            self.finalize_current_lap()
+            self.start_new_lap_file(lap_number)
+
+        if self.csv_writer is not None:
+            self.csv_writer.writerow([telemetry[column] for column in RAW_LAP_COLUMNS])
+            self.row_count += 1
+
+    def start_new_lap_file(self, lap_num: int) -> None:
+        self.finalize_current_lap()
         self.current_lap_number = lap_num
-        
-        filename = self.output_dir + f"/lap_{lap_num}.csv"
-        print(f"Recording new lap detected: Lap {lap_num}")
-        
-        self.output_file = open(filename, 'w', newline='')
+
+        filename = self.session_paths.raw_dir / f"lap_{lap_num:03d}.csv"
+        print(f"Recording lap {lap_num} to {filename}")
+        self.output_file = filename.open("w", newline="", encoding="utf-8")
         self.csv_writer = csv.writer(self.output_file)
-        
-        self.csv_writer.writerow(headers)
+        self.csv_writer.writerow(RAW_LAP_COLUMNS)
 
-    def end_collection(self):
-        if self.output_file:
-            self.output_file.close()
+    def finalize_current_lap(self) -> None:
+        if self.output_file is None:
+            return
 
-            metadata = {
-                "session_id": "Session: " + constants.SESSION_ID_PREFIX,
-                "sim": "Forza Motorsport",
-                "date": self.session_timestamp.split('_')[0],
-                "car": self.car_ordinal,
-                "track": self.track_ordinal,
-                "total_laps": self.current_lap_number,
-                "notes": ""
-            }
+        self.output_file.close()
+        self.output_file = None
+        self.csv_writer = None
 
-            with open(self.output_dir + "/metadata.json", "w") as json_file:
-                json.dump(metadata, json_file, indent=4)
-            
-            self.output_file = None
-            self.csv_writer = None
-            self.current_lap_number = -1
-            self.car_ordinal = None
-            self.track_ordinal = None
+        if self.current_lap_number >= 0:
+            self.completed_laps.add(self.current_lap_number)
 
+    def _update_metadata_from_telemetry(self, telemetry: dict[str, float | int]) -> None:
+        self.car_ordinal = int(telemetry["CarOrdinal"])
+        self.track_ordinal = int(telemetry["TrackOrdinal"])
+        track_metadata = get_track_metadata(self.track_ordinal)
 
+        self.metadata = replace(
+            self.metadata,
+            car_ordinal=self.car_ordinal,
+            track_ordinal=self.track_ordinal,
+            track_circuit=track_metadata.get("track_circuit"),
+            track_layout=track_metadata.get("track_layout"),
+            track_location=track_metadata.get("track_location"),
+            track_length_m=track_metadata.get("track_length_m"),
+            total_laps=len(self.completed_laps) + (1 if self.current_lap_number >= 0 else 0),
+        )
 
-    def run(self):
+    def write_metadata(self) -> None:
+        current_lap_total = len(self.completed_laps) + (1 if self.output_file is not None else 0)
+        metadata = replace(self.metadata, total_laps=current_lap_total)
+
+        with self.session_paths.raw_metadata_path.open("w", encoding="utf-8") as json_file:
+            json.dump(metadata.to_dict(), json_file, indent=2)
+
+    def end_collection(self) -> None:
+        self.finalize_current_lap()
+        self.write_metadata()
+        self.current_lap_number = -1
+
+    def run(self) -> None:
         print(f"Listening for Forza telemetry on {self.ip}:{self.port}...")
         try:
             while True:
-                data, addr = self.sock.recvfrom(1024)
-                if len(data) >= 311:
+                data, _ = self.sock.recvfrom(1024)
+                if len(data) >= self.decoder.packet_size:
                     self.process_packet(data)
         except KeyboardInterrupt:
             self.end_collection()
             print("\nStopped logging.")
 
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Capture Forza telemetry and persist raw laps.")
+    parser.add_argument("--ip", default=DEFAULT_LISTEN_IP, help="IP address to bind to.")
+    parser.add_argument("--port", default=DEFAULT_LISTEN_PORT, type=int, help="UDP port to bind to.")
+    parser.add_argument("--session-id", default=None, help="Optional session identifier override.")
+    return parser
+
+
 if __name__ == "__main__":
-    logger = datacollector()
+    args = build_arg_parser().parse_args()
+    logger = datacollector(ip=args.ip, port=args.port, session_id=args.session_id)
     logger.run()
