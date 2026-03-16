@@ -107,7 +107,6 @@ class SessionMetadata:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
-
 @dataclass(frozen=True)
 class Finding:
     finding_type: str
@@ -122,3 +121,4 @@ class Finding:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+

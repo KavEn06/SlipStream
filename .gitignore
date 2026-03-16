@@ -35,6 +35,4 @@ dist/
 # Generated telemetry output
 data/raw/
 data/processed/
-
-# Local reference assets
 src/reference/
