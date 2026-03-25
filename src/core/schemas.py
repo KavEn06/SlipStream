@@ -106,19 +106,3 @@ class SessionMetadata:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-@dataclass(frozen=True)
-class Finding:
-    finding_type: str
-    region_type: str
-    start_norm_distance: float
-    end_norm_distance: float
-    metric: str
-    observed: float
-    reference: float
-    delta: float
-    summary: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-

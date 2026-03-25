@@ -14,7 +14,7 @@ from src.processing.distance import (
     process_session,
     resample_processed_lap,
 )
-from src.schemas import PROCESSED_LAP_COLUMNS
+from src.core.schemas import PROCESSED_LAP_COLUMNS
 
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "sample_raw_lap.csv"

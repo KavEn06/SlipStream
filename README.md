@@ -10,14 +10,12 @@ The system is being built as an engineering-driven pipeline first. Any future AI
 
 ## Current Scope
 
-The repository now covers Phase 1 and the foundations of Phase 2:
+The repository is currently focused on Phase 1:
 
 - raw Forza UDP ingestion into per-lap CSV files
 - session metadata capture with track enrichment from `TrackOrdinal`
 - canonical processed lap generation
 - derived telemetry feature generation
-- track-aligned lap segmentation
-- lap comparison and structured findings
 
 ## Pipeline
 
@@ -27,19 +25,15 @@ forzaUdp[ForzaUDPTelemetry] --> rawLogger[RawLapLogger]
 rawLogger --> rawStore[RawLapCSVsAndSessionMetadata]
 rawStore --> canonicalBuilder[CanonicalLapProcessing]
 canonicalBuilder --> processedStore[ProcessedLapStore]
-processedStore --> segmentation[LapSegmentation]
-segmentation --> comparison[LapComparisonEngine]
-comparison --> findings[StructuredFindings]
 ```
 
 ## Repository Layout
 
 - `src/ingest/datacollector.py`: UDP capture, raw lap logging, session metadata
 - `src/processing/distance.py`: canonical processed-lap builder, feature engineering, resampling helpers
-- `src/analysis/segmentation.py`: straight / braking / entry / apex / exit segmentation
-- `src/analysis/comparison.py`: reference lap generation, time-loss comparison, findings
-- `src/tracks.py`: track ordinal lookup
-- `tests/`: fixture-based coverage for ingest, processing, and analysis
+- `src/core/`: stable support modules for config, schemas, constants, and track lookup
+- `run_phase1_review.py`: choose a raw lap, process it, and open raw/processed debug plots
+- `tests/`: fixture-based coverage for ingest and processing
 
 ## Canonical Processed Lap
 
@@ -86,14 +80,3 @@ Run tests:
 ```bash
 python3 -m unittest discover -s tests -v
 ```
-
-## Current Findings Layer
-
-The comparison layer can already emit structured measurements for:
-
-- time loss by driving region
-- minimum-speed deltas
-- brake-point deltas
-- throttle pickup deltas
-- coasting deltas
-- basic overdriving / underdriving indicators when supported by the telemetry

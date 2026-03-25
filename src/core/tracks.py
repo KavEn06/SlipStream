@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 
 
-TRACKS_JSON_PATH = Path(__file__).resolve().parent / "track_ordinals" / "tracks.json"
+TRACKS_JSON_PATH = Path(__file__).resolve().parents[1] / "track_ordinals" / "tracks.json"
 
 
 @lru_cache(maxsize=1)

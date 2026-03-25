@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.config import DEFAULT_RESAMPLE_POINTS, get_session_paths
-from src.schemas import PROCESSED_LAP_COLUMNS, RAW_LAP_COLUMNS, REFERENCE_LAP_COLUMNS, SCHEMA_VERSION
+from src.core.config import DEFAULT_RESAMPLE_POINTS, get_session_paths
+from src.core.schemas import PROCESSED_LAP_COLUMNS, RAW_LAP_COLUMNS, REFERENCE_LAP_COLUMNS, SCHEMA_VERSION
 
 
 RAW_REQUIRED_COLUMNS = set(RAW_LAP_COLUMNS)

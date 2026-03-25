@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.config import SessionPaths
+from src.core.config import SessionPaths
 from src.ingest.datacollector import ForzaTelemetryDecoder, datacollector
 
 

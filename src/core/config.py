@@ -6,7 +6,7 @@ from pathlib import Path
 import os
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_ROOT = REPO_ROOT / "data"
 RAW_DATA_ROOT = DATA_ROOT / "raw"
 PROCESSED_DATA_ROOT = DATA_ROOT / "processed"

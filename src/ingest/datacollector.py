@@ -9,9 +9,9 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.config import DEFAULT_LISTEN_IP, DEFAULT_LISTEN_PORT, DEFAULT_SIM_NAME, get_session_paths
-from src.schemas import RAW_LAP_COLUMNS, SCHEMA_VERSION, SessionMetadata
-from src.tracks import get_track_metadata
+from src.core.config import DEFAULT_LISTEN_IP, DEFAULT_LISTEN_PORT, DEFAULT_SIM_NAME, get_session_paths
+from src.core.schemas import RAW_LAP_COLUMNS, SCHEMA_VERSION, SessionMetadata
+from src.core.tracks import get_track_metadata
 
 
 class ForzaTelemetryDecoder:
