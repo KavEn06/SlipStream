@@ -36,3 +36,7 @@ dist/
 data/raw/
 data/processed/
 src/reference/
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/

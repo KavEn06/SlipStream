@@ -1,3 +1,5 @@
-matplotlib
-numpy
+fastapi
+uvicorn[standard]
 pandas
+numpy
+matplotlib

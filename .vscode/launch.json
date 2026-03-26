@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "MPLCONFIGDIR": "${workspaceFolder}/.mplconfig"
+      },
+      "justMyCode": true
+    },
+    {
+      "name": "SlipStream: Phase 1 Review",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_phase1_review.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "MPLCONFIGDIR": "${workspaceFolder}/.mplconfig"
+      },
+      "justMyCode": true
+    }
+  ]
+}
