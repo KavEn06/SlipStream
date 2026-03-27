@@ -1,14 +1,7 @@
 import { Link } from "react-router-dom";
 import type { SessionSummary } from "../types";
 import { StatusBadge } from "./StatusBadge";
-
-function formatSessionId(id: string): string {
-  const ts = id.replace("session_", "");
-  const match = ts.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/);
-  if (!match) return id;
-  const [, y, mo, d, h, mi, s] = match;
-  return `${y}-${mo}-${d} ${h}:${mi}:${s}`;
-}
+import { formatSessionTimestamp } from "../utils/sessions";
 
 interface Props {
   session: SessionSummary;
@@ -25,7 +18,7 @@ export function SessionCard({ session, isDeleting = false, onDelete }: Props) {
           className="min-w-0 pr-3"
         >
           <h3 className="font-mono text-sm font-medium text-white transition-colors group-hover:text-accent">
-            {formatSessionId(session.session_id)}
+            {formatSessionTimestamp(session.session_id)}
           </h3>
         </Link>
         <div className="flex items-center gap-2">

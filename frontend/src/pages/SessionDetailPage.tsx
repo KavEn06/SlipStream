@@ -53,7 +53,7 @@ export function SessionDetailPage() {
     setDeletingSession(true);
     try {
       await api.deleteSession(sessionId);
-      navigate("/");
+      navigate("/sessions");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete session");
       setDeletingSession(false);
@@ -74,7 +74,7 @@ export function SessionDetailPage() {
       setSession(detail);
     } catch (err) {
       if (err instanceof Error && err.message === "Session not found") {
-        navigate("/");
+        navigate("/sessions");
       } else {
         setError(err instanceof Error ? err.message : "Failed to delete lap");
       }
@@ -96,7 +96,7 @@ export function SessionDetailPage() {
     <div className="max-w-5xl space-y-8">
       <div>
         <Link
-          to="/"
+          to="/sessions"
           className="text-sm text-text-muted transition-colors hover:text-text-secondary"
         >
           &larr; Sessions

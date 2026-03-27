@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
+import { HomePage } from "./pages/HomePage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { SessionDetailPage } from "./pages/SessionDetailPage";
 import { LapReviewPage } from "./pages/LapReviewPage";
@@ -9,7 +10,7 @@ export default function App() {
     <BrowserRouter>
       <Layout>
         <Routes>
-          <Route path="/" element={<SessionsPage />} />
+          <Route path="/" element={<HomePage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
           <Route

@@ -1,50 +1,23 @@
-import { useEffect, useState } from "react";
-import { api } from "../api/client";
-import type { CaptureStatus } from "../types";
+import { useState } from "react";
+import { useCaptureController } from "../hooks/useCaptureController";
 
 interface Props {
   onCaptureChange?: () => void;
 }
 
 export function CapturePanel({ onCaptureChange }: Props) {
-  const [status, setStatus] = useState<CaptureStatus | null>(null);
-  const [ip, setIp] = useState("127.0.0.1");
-  const [port, setPort] = useState("5300");
-  const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const capture = useCaptureController();
+  const isActive = capture.status?.is_active ?? false;
 
-  useEffect(() => {
-    const poll = () =>
-      api.getCaptureStatus().then(setStatus).catch(() => {});
-    poll();
-    const id = setInterval(poll, 2000);
-    return () => clearInterval(id);
-  }, []);
-
-  const handleStart = async () => {
-    setBusy(true);
-    try {
-      const result = await api.startCapture({ ip, port: parseInt(port) });
-      setStatus(result);
-    } catch (err) {
-      console.error(err);
-    }
-    setBusy(false);
-  };
-
-  const handleStop = async () => {
-    setBusy(true);
-    try {
-      const result = await api.stopCapture();
-      setStatus(result);
+  const handleAction = async () => {
+    const result = isActive
+      ? await capture.stopCapture()
+      : await capture.startCapture();
+    if (result) {
       onCaptureChange?.();
-    } catch (err) {
-      console.error(err);
     }
-    setBusy(false);
   };
-
-  const isActive = status?.is_active ?? false;
 
   return (
     <div className="rounded-3xl border border-white/5 bg-white/[0.02]">
@@ -59,9 +32,9 @@ export function CapturePanel({ onCaptureChange }: Props) {
             }`}
           />
           <span className="text-sm font-medium">Capture</span>
-          {isActive && status && (
+          {isActive && capture.status && (
             <span className="text-xs text-text-muted">
-              {status.laps_detected} laps &middot; {status.session_id}
+              {capture.status.laps_detected} laps &middot; {capture.status.session_id}
             </span>
           )}
         </div>
@@ -90,8 +63,8 @@ export function CapturePanel({ onCaptureChange }: Props) {
                 </label>
                 <input
                   type="text"
-                  value={ip}
-                  onChange={(e) => setIp(e.target.value)}
+                  value={capture.ip}
+                  onChange={(e) => capture.setIp(e.target.value)}
                   className="w-36 rounded-full border border-white/6 bg-black/30 px-3 py-2 text-sm focus:border-accent focus:outline-none"
                 />
               </div>
@@ -101,24 +74,27 @@ export function CapturePanel({ onCaptureChange }: Props) {
                 </label>
                 <input
                   type="text"
-                  value={port}
-                  onChange={(e) => setPort(e.target.value)}
+                  value={capture.port}
+                  onChange={(e) => capture.setPort(e.target.value)}
                   className="w-24 rounded-full border border-white/6 bg-black/30 px-3 py-2 text-sm focus:border-accent focus:outline-none"
                 />
               </div>
             </div>
           )}
           <button
-            onClick={isActive ? handleStop : handleStart}
-            disabled={busy}
+            onClick={handleAction}
+            disabled={capture.busy}
             className={`rounded-full px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
               isActive
                 ? "bg-danger/12 text-danger hover:bg-danger/18"
                 : "bg-accent/12 text-accent hover:bg-accent/18"
             } disabled:opacity-50`}
           >
-            {busy ? "..." : isActive ? "Stop Capture" : "Start Capture"}
+            {capture.busy ? "..." : isActive ? "Stop Capture" : "Start Capture"}
           </button>
+          {capture.error && (
+            <p className="text-sm text-danger">{capture.error}</p>
+          )}
         </div>
       )}
     </div>

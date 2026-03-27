@@ -3,27 +3,9 @@ import { api } from "../api/client";
 import { SessionCard } from "../components/SessionCard";
 import { CapturePanel } from "../components/CapturePanel";
 import type { SessionSummary } from "../types";
+import { getSessionDateValue } from "../utils/sessions";
 
 type StatusFilter = "all" | "processed" | "raw";
-
-function getSessionDateValue(session: SessionSummary): string {
-  if (session.created_at_utc) {
-    const parsedDate = new Date(session.created_at_utc);
-    if (!Number.isNaN(parsedDate.getTime())) {
-      return parsedDate.toISOString().slice(0, 10);
-    }
-  }
-
-  const match = session.session_id.match(
-    /^session_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/,
-  );
-  if (!match) {
-    return "";
-  }
-
-  const [, year, month, day] = match;
-  return `${year}-${month}-${day}`;
-}
 
 export function SessionsPage() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -94,7 +76,7 @@ export function SessionsPage() {
       <div>
         <h2 className="text-3xl font-semibold tracking-tight">Sessions</h2>
         <p className="mt-2 text-sm text-text-secondary">
-          Browse and review captured telemetry sessions
+          Browse, filter, and review captured telemetry sessions
         </p>
       </div>
 
