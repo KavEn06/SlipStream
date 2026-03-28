@@ -12,6 +12,20 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Capture request failed";
 }
 
+function normalizeCaptureStatus(status: CaptureStatus): CaptureStatus {
+  if (status.is_active) {
+    return status;
+  }
+
+  return {
+    ...status,
+    session_id: null,
+    ip: null,
+    port: null,
+    laps_detected: 0,
+  };
+}
+
 export function useCaptureController({
   pollIntervalMs = 2000,
   defaultIp = "127.0.0.1",
@@ -28,7 +42,7 @@ export function useCaptureController({
 
     const poll = async () => {
       try {
-        const nextStatus = await api.getCaptureStatus();
+        const nextStatus = normalizeCaptureStatus(await api.getCaptureStatus());
         if (cancelled) return;
         setStatus(nextStatus);
         setError(null);
@@ -50,7 +64,7 @@ export function useCaptureController({
 
   const refresh = async () => {
     try {
-      const nextStatus = await api.getCaptureStatus();
+      const nextStatus = normalizeCaptureStatus(await api.getCaptureStatus());
       setStatus(nextStatus);
       setError(null);
       return nextStatus;
@@ -63,7 +77,9 @@ export function useCaptureController({
   const startCapture = async () => {
     setBusy(true);
     try {
-      const result = await api.startCapture({ ip, port: parseInt(port, 10) });
+      const result = normalizeCaptureStatus(
+        await api.startCapture({ ip, port: parseInt(port, 10) }),
+      );
       setStatus(result);
       setError(null);
       return result;
@@ -79,7 +95,7 @@ export function useCaptureController({
   const stopCapture = async () => {
     setBusy(true);
     try {
-      const result = await api.stopCapture();
+      const result = normalizeCaptureStatus(await api.stopCapture());
       setStatus(result);
       setError(null);
       return result;

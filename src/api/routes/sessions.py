@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from src.api.models import DeleteResponse, ProcessResponse, SessionDetail, SessionSummary
+from src.api.services.capture_manager import CaptureManager
 from src.api.services.session_scanner import delete_session, get_session_detail, list_sessions
 from src.core.config import RAW_DATA_ROOT
 from src.processing.distance import process_session
@@ -25,6 +26,13 @@ def get_session(session_id: str):
 
 @router.post("/{session_id}/process", response_model=ProcessResponse)
 def process_session_endpoint(session_id: str):
+    capture_status = CaptureManager.get().status
+    if capture_status["is_active"] and capture_status["session_id"] == session_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Stop capture before processing this session",
+        )
+
     raw_dir = RAW_DATA_ROOT / session_id
     if not raw_dir.exists():
         raise HTTPException(status_code=404, detail="Raw session not found")

@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { SessionDetail } from "../types";
 import { StatusBadge } from "../components/StatusBadge";
+import { useCaptureController } from "../hooks/useCaptureController";
 
 function formatTime(seconds: number | null): string {
   if (seconds === null) return "--";
@@ -14,6 +15,7 @@ function formatTime(seconds: number | null): string {
 export function SessionDetailPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
+  const capture = useCaptureController();
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [processing, setProcessing] = useState(false);
   const [deletingSession, setDeletingSession] = useState(false);
@@ -31,14 +33,25 @@ export function SessionDetailPage() {
 
   useEffect(load, [sessionId]);
 
+  const isLiveSession =
+    Boolean(sessionId) &&
+    (capture.status?.is_active ?? false) &&
+    capture.status?.session_id === sessionId;
+
   const handleProcess = async () => {
     if (!sessionId) return;
+    if (isLiveSession) {
+      setError("Stop capture before processing this session");
+      return;
+    }
     setProcessing(true);
     try {
       await api.processSession(sessionId);
       load();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to process session",
+      );
     }
     setProcessing(false);
   };
@@ -128,13 +141,21 @@ export function SessionDetailPage() {
       <div className="flex flex-wrap items-center gap-3">
         <StatusBadge processed={session.has_processed} />
         {!session.has_processed && (
-          <button
-            onClick={handleProcess}
-            disabled={processing}
-            className="rounded-full bg-accent/12 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/18 disabled:opacity-50 cursor-pointer"
-          >
-            {processing ? "Processing..." : "Process Session"}
-          </button>
+          <>
+            <button
+              onClick={handleProcess}
+              disabled={processing || isLiveSession}
+              className="rounded-full bg-accent/12 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/18 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+              title={isLiveSession ? "Stop capture before processing this session" : undefined}
+            >
+              {processing ? "Processing..." : "Process Session"}
+            </button>
+            {isLiveSession && (
+              <p className="text-xs uppercase tracking-[0.14em] text-text-muted">
+                Stop capture to process this session
+              </p>
+            )}
+          </>
         )}
         <button
           onClick={handleDeleteSession}

@@ -3,6 +3,8 @@ import type { SessionSummary } from "../types";
 const SESSION_ID_PATTERN =
   /^session_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/;
 
+export type SessionLibrarySort = "newest" | "oldest" | "laps" | "track";
+
 export interface DashboardKpis {
   totalSessions: number;
   totalLaps: number;
@@ -77,6 +79,25 @@ export function getSessionTrackName(session: Pick<SessionSummary, "track_circuit
   return session.track_circuit?.trim() || "Unknown Track";
 }
 
+export function getSessionCarLabel(
+  carOrdinal: number | null | undefined,
+): string | null {
+  if (carOrdinal === null || carOrdinal === undefined) {
+    return null;
+  }
+
+  return `Car #${carOrdinal}`;
+}
+
+export function getSessionVehicleTrackLabel(
+  session: Pick<SessionSummary, "car_ordinal" | "track_circuit">,
+): string {
+  const carLabel = getSessionCarLabel(session.car_ordinal);
+  const trackLabel = getSessionTrackName(session);
+
+  return carLabel ? `${carLabel} // ${trackLabel}` : trackLabel;
+}
+
 export function deriveDashboardKpis(sessions: SessionSummary[]): DashboardKpis {
   return sessions.reduce<DashboardKpis>(
     (acc, session) => {
@@ -143,4 +164,84 @@ export function getRecentSessions(
         right.session_id.localeCompare(left.session_id),
     )
     .slice(0, limit);
+}
+
+export function matchesSessionQuery(
+  session: Pick<
+    SessionSummary,
+    "session_id" | "track_circuit" | "track_layout" | "track_location" | "car_ordinal"
+  >,
+  query: string,
+): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  const searchable = [
+    session.session_id,
+    session.track_circuit,
+    session.track_layout,
+    session.track_location,
+    getSessionCarLabel(session.car_ordinal),
+    session.car_ordinal?.toString(),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return searchable.includes(normalizedQuery);
+}
+
+function compareSessions(
+  left: SessionSummary,
+  right: SessionSummary,
+  sort: SessionLibrarySort,
+): number {
+  switch (sort) {
+    case "oldest":
+      return (
+        getSessionSortValue(left) - getSessionSortValue(right) ||
+        left.session_id.localeCompare(right.session_id)
+      );
+    case "laps":
+      return (
+        right.total_laps - left.total_laps ||
+        getSessionSortValue(right) - getSessionSortValue(left) ||
+        right.session_id.localeCompare(left.session_id)
+      );
+    case "track":
+      return (
+        getSessionTrackName(left).localeCompare(getSessionTrackName(right)) ||
+        getSessionSortValue(right) - getSessionSortValue(left) ||
+        right.session_id.localeCompare(left.session_id)
+      );
+    case "newest":
+    default:
+      return (
+        getSessionSortValue(right) - getSessionSortValue(left) ||
+        right.session_id.localeCompare(left.session_id)
+      );
+  }
+}
+
+export function sortSessionsForLibrary(
+  sessions: SessionSummary[],
+  sort: SessionLibrarySort,
+  activeSessionId?: string | null,
+): SessionSummary[] {
+  return [...sessions].sort((left, right) => {
+    const leftIsActive = activeSessionId !== null && activeSessionId !== undefined
+      ? left.session_id === activeSessionId
+      : false;
+    const rightIsActive = activeSessionId !== null && activeSessionId !== undefined
+      ? right.session_id === activeSessionId
+      : false;
+
+    if (leftIsActive !== rightIsActive) {
+      return leftIsActive ? -1 : 1;
+    }
+
+    return compareSessions(left, right, sort);
+  });
 }

@@ -17,8 +17,20 @@
   --color-danger: #ff6b6b;
 }
 
+html,
+body,
+#root {
+  background-color: #040405;
+}
+
+html {
+  min-height: 100%;
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
+  min-height: 100vh;
   background:
     radial-gradient(circle at top right, rgba(209, 75, 75, 0.08), transparent 28%),
     linear-gradient(180deg, #070708 0%, #040405 100%);
