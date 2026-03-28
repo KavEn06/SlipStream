@@ -128,7 +128,7 @@ export function SessionDetailPage() {
         ].map((item) => (
           <div
             key={item.label}
-            className="rounded-3xl border border-white/5 bg-white/[0.02] p-4"
+            className="rounded-3xl border border-border/70 bg-surface-1/85 p-4"
           >
             <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
               {item.label}
@@ -166,10 +166,10 @@ export function SessionDetailPage() {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-3xl border border-white/5 bg-white/[0.02]">
+      <div className="overflow-hidden rounded-3xl border border-border/70 bg-surface-1/85">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-white/5 text-[11px] uppercase tracking-[0.16em] text-text-muted">
+            <tr className="border-b border-border/60 text-[11px] uppercase tracking-[0.16em] text-text-muted">
               <th className="text-left p-3 font-medium">Lap</th>
               <th className="text-left p-3 font-medium">Time</th>
               <th className="text-left p-3 font-medium">Valid</th>
@@ -181,7 +181,7 @@ export function SessionDetailPage() {
             {session.laps.map((lap) => (
               <tr
                 key={lap.lap_number}
-                className="border-b border-white/4 transition-colors hover:bg-white/[0.03]"
+                className="border-b border-border/60 transition-colors hover:bg-surface-2/78"
               >
                 <td className="p-3 font-medium">Lap {lap.lap_number}</td>
                 <td className="p-3 font-mono text-text-secondary">
@@ -202,7 +202,7 @@ export function SessionDetailPage() {
                 </td>
                 <td className="p-3 space-x-2">
                   {lap.has_raw && (
-                    <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px]">
+                    <span className="rounded-full border border-border/70 bg-surface-2/86 px-2.5 py-1 text-[11px] text-text-secondary">
                       Raw
                     </span>
                   )}

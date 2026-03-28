@@ -23,7 +23,7 @@ function StatCard({
   value: string;
 }) {
   return (
-    <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-5">
+    <div className="rounded-3xl border border-border/70 bg-surface-1/85 p-5">
       <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
         {label}
       </p>
@@ -40,7 +40,7 @@ function DetailRow({
   value: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-white/5 py-3 last:border-b-0">
+    <div className="flex items-center justify-between gap-3 border-b border-border/60 py-3 last:border-b-0">
       <span className="text-xs uppercase tracking-[0.14em] text-text-muted">
         {label}
       </span>
@@ -182,16 +182,16 @@ export function HomePage() {
   return (
     <div className="max-w-7xl space-y-6">
       <section className="space-y-4">
-        <div className="overflow-hidden rounded-[30px] border border-white/6 bg-white/[0.02]">
+        <div className="overflow-hidden rounded-[30px] border border-border/70 bg-surface-1/85">
           <div className="grid gap-0 xl:grid-cols-[minmax(0,1.8fr)_300px]">
             <div className="relative overflow-hidden px-6 py-6 lg:px-8 lg:py-8">
-              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(209,75,75,0.22),transparent_32%),linear-gradient(118deg,rgba(255,255,255,0.03),transparent_44%),repeating-linear-gradient(135deg,rgba(255,255,255,0.03)_0px,rgba(255,255,255,0.03)_1px,transparent_1px,transparent_18px)]" />
-              <div className="pointer-events-none absolute -left-16 top-8 h-24 w-56 rotate-[-16deg] border-y border-white/8 bg-white/[0.02]" />
+              <div className="hero-overlay pointer-events-none absolute inset-0" />
+              <div className="hero-band pointer-events-none absolute -left-16 top-8 h-24 w-56 rotate-[-16deg]" />
 
               <div className="relative">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="flex flex-wrap items-center gap-3">
-                    <span className="inline-flex items-center border border-white/8 bg-black/25 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-text-secondary [clip-path:polygon(0_0,100%_0,92%_100%,0_100%)]">
+                    <span className="inline-flex items-center border border-border/70 bg-surface-0/55 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-text-secondary [clip-path:polygon(0_0,100%_0,92%_100%,0_100%)]">
                       SlipStream // Review Station
                     </span>
                     <div className="flex items-center gap-2">
@@ -211,17 +211,17 @@ export function HomePage() {
                   <p className="text-sm uppercase tracking-[0.22em] text-text-muted">
                     {heroVehicleTrackLabel}
                   </p>
-                  <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-white lg:text-[3.5rem] lg:leading-[1.02]">
+                  <h2 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight text-text-primary lg:text-[3.5rem] lg:leading-[1.02]">
                     {isActive ? "Telemetry Online." : "Telemetry Ready."}
                   </h2>
                 </div>
 
-                <div className="mt-8 grid gap-4 rounded-[24px] border border-white/6 bg-black/18 p-5 md:grid-cols-[minmax(0,1.4fr)_140px_auto]">
+                <div className="mt-8 grid gap-4 rounded-[24px] border border-border/70 bg-surface-2/78 p-5 md:grid-cols-[minmax(0,1.4fr)_140px_auto]">
                   <div className="min-w-0">
                     <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">
                       Current Session
                     </p>
-                    <p className="mt-2 truncate font-mono text-sm text-white">
+                    <p className="mt-2 truncate font-mono text-sm text-text-primary">
                       {liveSessionLabel}
                     </p>
                   </div>
@@ -229,7 +229,7 @@ export function HomePage() {
                     <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">
                       Laps
                     </p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight text-white">
+                    <p className="mt-2 text-3xl font-semibold tracking-tight text-text-primary">
                       {liveLapCount}
                     </p>
                   </div>
@@ -283,7 +283,7 @@ export function HomePage() {
                     }`}
                   >
                     <div className="overflow-hidden">
-                      <div className="grid gap-4 rounded-2xl border border-white/6 bg-black/16 p-4 md:grid-cols-[auto_auto_1fr]">
+                      <div className="grid gap-4 rounded-2xl border border-border/70 bg-surface-2/78 p-4 md:grid-cols-[auto_auto_1fr]">
                         <div>
                           <label className="mb-1 block text-xs text-text-muted">
                             IP Address
@@ -293,7 +293,7 @@ export function HomePage() {
                             value={capture.ip}
                             disabled={!showAdvancedCapture || isActive}
                             onChange={(event) => capture.setIp(event.target.value)}
-                            className="w-36 border-x-0 border-b border-t-0 border-white/12 bg-transparent px-0 py-2 text-sm text-text-secondary focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                            className="w-36 border-x-0 border-b border-t-0 border-border bg-transparent px-0 py-2 text-sm text-text-secondary focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                           />
                         </div>
                         <div>
@@ -305,7 +305,7 @@ export function HomePage() {
                             value={capture.port}
                             disabled={!showAdvancedCapture || isActive}
                             onChange={(event) => capture.setPort(event.target.value)}
-                            className="w-28 border-x-0 border-b border-t-0 border-white/12 bg-transparent px-0 py-2 text-sm text-text-secondary focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                            className="w-28 border-x-0 border-b border-t-0 border-border bg-transparent px-0 py-2 text-sm text-text-secondary focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                           />
                         </div>
                         <div className="self-end">
@@ -327,11 +327,11 @@ export function HomePage() {
               </div>
             </div>
 
-            <aside className="border-t border-white/5 bg-[linear-gradient(180deg,rgba(0,0,0,0.12),rgba(0,0,0,0.24))] px-6 py-6 lg:px-7 xl:border-l xl:border-t-0">
+            <aside className="side-panel-surface border-t border-border/60 px-6 py-6 lg:px-7 xl:border-l xl:border-t-0">
               <p className="text-[10px] uppercase tracking-[0.24em] text-text-muted">
                 Vehicle Context
               </p>
-              <h3 className="mt-4 text-2xl font-semibold tracking-tight text-white">
+              <h3 className="mt-4 text-2xl font-semibold tracking-tight text-text-primary">
                 {carNameLabel}
               </h3>
               <p className="mt-2 text-sm text-text-muted">
@@ -352,7 +352,7 @@ export function HomePage() {
           </div>
         </div>
 
-        <section className="rounded-[28px] border border-white/6 bg-white/[0.02] p-5">
+        <section className="rounded-[28px] border border-border/70 bg-surface-1/85 p-5">
           <div className="flex items-end justify-between gap-3">
             <div>
               <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
@@ -364,7 +364,7 @@ export function HomePage() {
             </div>
             <Link
               to="/sessions"
-              className="text-sm text-text-secondary transition-colors hover:text-white"
+              className="text-sm text-text-secondary transition-colors hover:text-text-primary"
             >
               All Sessions
             </Link>
@@ -377,19 +377,19 @@ export function HomePage() {
           {sessionsLoading ? (
             <p className="mt-5 text-sm text-text-muted">Loading...</p>
           ) : recentSessions.length === 0 ? (
-            <div className="mt-5 rounded-3xl border border-dashed border-white/8 bg-black/20 p-8 text-center text-sm text-text-secondary">
+            <div className="mt-5 rounded-3xl border border-dashed border-border/70 bg-surface-2/72 p-8 text-center text-sm text-text-secondary">
               No sessions
             </div>
           ) : (
-            <div className="mt-5 overflow-hidden rounded-3xl border border-white/5">
+            <div className="mt-5 overflow-hidden rounded-3xl border border-border/60">
               {recentSessions.map((session) => (
                 <Link
                   key={session.session_id}
                   to={`/sessions/${session.session_id}`}
-                  className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 bg-black/20 px-4 py-4 transition-colors hover:bg-white/[0.03] last:border-b-0"
+                  className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-surface-2/72 px-4 py-4 transition-colors hover:bg-surface-3/82 last:border-b-0"
                 >
                   <div className="min-w-0">
-                    <p className="font-mono text-sm font-medium text-white">
+                    <p className="font-mono text-sm font-medium text-text-primary">
                       {formatSessionTimestamp(session.session_id)}
                     </p>
                     <p className="mt-1 truncate text-sm text-text-secondary">
@@ -431,7 +431,7 @@ export function HomePage() {
         />
       </div>
 
-      <section className="rounded-[28px] border border-white/6 bg-white/[0.02] p-5">
+      <section className="rounded-[28px] border border-border/70 bg-surface-1/85 p-5">
         <div>
           <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
             Track Breakdown
@@ -442,7 +442,7 @@ export function HomePage() {
         </div>
 
         {trackBreakdown.length === 0 ? (
-          <div className="mt-5 rounded-3xl border border-dashed border-white/8 bg-black/20 p-8 text-center text-sm text-text-secondary">
+          <div className="mt-5 rounded-3xl border border-dashed border-border/70 bg-surface-2/72 p-8 text-center text-sm text-text-secondary">
             No tracks
           </div>
         ) : (
@@ -454,7 +454,7 @@ export function HomePage() {
                     <span className="text-xs font-medium text-text-muted">
                       {(index + 1).toString().padStart(2, "0")}
                     </span>
-                    <span className="truncate text-sm font-medium text-white">
+                    <span className="truncate text-sm font-medium text-text-primary">
                       {track.name}
                     </span>
                   </div>
@@ -462,7 +462,7 @@ export function HomePage() {
                     {track.sessions} sessions • {track.laps} laps
                   </span>
                 </div>
-                <div className="h-2 rounded-full bg-black/30">
+                <div className="h-2 rounded-full bg-surface-3/82">
                   <div
                     className="h-2 rounded-full bg-accent"
                     style={{ width: `${Math.max(track.share * 100, 8)}%` }}
@@ -474,10 +474,10 @@ export function HomePage() {
         )}
       </section>
 
-      <section className="overflow-hidden rounded-[28px] border border-white/6 bg-white/[0.02]">
+      <section className="overflow-hidden rounded-[28px] border border-border/70 bg-surface-1/85">
         <div className="grid gap-0 lg:grid-cols-[minmax(0,1.3fr)_360px]">
           <div className="relative overflow-hidden px-5 py-6 lg:px-6">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(209,75,75,0.18),transparent_34%),linear-gradient(115deg,rgba(255,255,255,0.02),transparent_50%)]" />
+            <div className="hero-overlay pointer-events-none absolute inset-0 opacity-80" />
             <div className="relative">
               <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
                 Favourite Car
@@ -485,7 +485,7 @@ export function HomePage() {
 
               {favoriteCar ? (
                 <>
-                  <h3 className="mt-3 text-3xl font-semibold tracking-tight text-white lg:text-[2.5rem]">
+                  <h3 className="mt-3 text-3xl font-semibold tracking-tight text-text-primary lg:text-[2.5rem]">
                     {getSessionCarLabel(favoriteCar.carOrdinal)}
                   </h3>
                   <p className="mt-2 text-sm uppercase tracking-[0.2em] text-text-muted">
@@ -493,41 +493,41 @@ export function HomePage() {
                   </p>
 
                   <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-2xl border border-white/6 bg-black/20 p-4">
+                    <div className="rounded-2xl border border-border/70 bg-surface-2/76 p-4">
                       <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
                         Sessions
                       </p>
-                      <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
+                      <p className="mt-2 text-2xl font-semibold tracking-tight text-text-primary">
                         {favoriteCar.sessions}
                       </p>
                     </div>
-                    <div className="rounded-2xl border border-white/6 bg-black/20 p-4">
+                    <div className="rounded-2xl border border-border/70 bg-surface-2/76 p-4">
                       <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
                         Laps
                       </p>
-                      <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
+                      <p className="mt-2 text-2xl font-semibold tracking-tight text-text-primary">
                         {favoriteCar.laps}
                       </p>
                     </div>
-                    <div className="rounded-2xl border border-white/6 bg-black/20 p-4">
+                    <div className="rounded-2xl border border-border/70 bg-surface-2/76 p-4">
                       <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
                         Processed
                       </p>
-                      <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
+                      <p className="mt-2 text-2xl font-semibold tracking-tight text-text-primary">
                         {favoriteCar.processedSessions}
                       </p>
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="mt-5 rounded-3xl border border-dashed border-white/8 bg-black/20 p-8 text-center text-sm text-text-secondary">
+                <div className="mt-5 rounded-3xl border border-dashed border-border/70 bg-surface-2/72 p-8 text-center text-sm text-text-secondary">
                   No vehicle data
                 </div>
               )}
             </div>
           </div>
 
-          <aside className="border-t border-white/5 bg-[linear-gradient(180deg,rgba(0,0,0,0.12),rgba(0,0,0,0.24))] px-5 py-6 lg:border-l lg:border-t-0 lg:px-6">
+          <aside className="side-panel-surface border-t border-border/60 px-5 py-6 lg:border-l lg:border-t-0 lg:px-6">
             <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">
               Garage Focus
             </p>
@@ -545,7 +545,7 @@ export function HomePage() {
                 />
               </div>
             ) : (
-              <div className="mt-5 rounded-2xl border border-dashed border-white/8 bg-black/20 p-5 text-sm text-text-secondary">
+              <div className="mt-5 rounded-2xl border border-dashed border-border/70 bg-surface-2/72 p-5 text-sm text-text-secondary">
                 Capture and review more sessions to build vehicle trends.
               </div>
             )}

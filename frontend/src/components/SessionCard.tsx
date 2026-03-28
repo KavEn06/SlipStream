@@ -11,13 +11,13 @@ interface Props {
 
 export function SessionCard({ session, isDeleting = false, onDelete }: Props) {
   return (
-    <div className="group rounded-3xl border border-white/5 bg-white/[0.02] p-5 transition-all hover:border-accent/20 hover:bg-white/[0.03]">
+    <div className="group rounded-3xl border border-border/70 bg-surface-1/85 p-5 transition-all hover:border-accent/20 hover:bg-surface-2/82">
       <div className="mb-3 flex items-start justify-between gap-3">
         <Link
           to={`/sessions/${session.session_id}`}
           className="min-w-0 pr-3"
         >
-          <h3 className="font-mono text-sm font-medium text-white transition-colors group-hover:text-accent">
+          <h3 className="font-mono text-sm font-medium text-text-primary transition-colors group-hover:text-accent">
             {formatSessionTimestamp(session.session_id)}
           </h3>
         </Link>

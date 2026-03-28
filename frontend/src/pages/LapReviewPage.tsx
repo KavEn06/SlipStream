@@ -94,15 +94,15 @@ export function LapReviewPage() {
         </div>
       </div>
 
-      <div className="flex w-fit gap-1 rounded-full border border-white/5 bg-white/[0.02] p-1">
+      <div className="flex w-fit gap-1 rounded-full border border-border/70 bg-surface-1/85 p-1">
         {(["processed", "raw"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setDataType(t)}
             className={`rounded-full px-4 py-1.5 text-sm capitalize transition-colors cursor-pointer ${
               dataType === t
-                ? "bg-white/6 text-accent font-medium"
-                : "text-text-muted hover:text-text-secondary"
+                ? "bg-surface-2 text-accent font-medium"
+                : "text-text-muted hover:bg-surface-2 hover:text-text-secondary"
             }`}
           >
             {t}

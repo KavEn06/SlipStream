@@ -20,11 +20,11 @@ function LibraryStat({
   value: string;
 }) {
   return (
-    <div className="min-w-[104px] rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
+    <div className="min-w-[104px] rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3">
       <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
         {label}
       </p>
-      <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
+      <p className="mt-2 text-2xl font-semibold tracking-tight text-text-primary">
         {value}
       </p>
     </div>
@@ -180,15 +180,15 @@ export function SessionsPage() {
 
   return (
     <div className="max-w-7xl space-y-5">
-      <section className="overflow-hidden rounded-[30px] border border-white/6 bg-white/[0.02]">
+      <section className="overflow-hidden rounded-[30px] border border-border/70 bg-surface-1/85">
         <div className="relative px-6 py-6 lg:px-8 lg:py-7">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(209,75,75,0.18),transparent_30%),linear-gradient(118deg,rgba(255,255,255,0.03),transparent_44%),repeating-linear-gradient(135deg,rgba(255,255,255,0.03)_0px,rgba(255,255,255,0.03)_1px,transparent_1px,transparent_18px)]" />
-          <div className="pointer-events-none absolute -left-16 top-8 h-24 w-56 rotate-[-16deg] border-y border-white/8 bg-white/[0.02]" />
+          <div className="hero-overlay pointer-events-none absolute inset-0" />
+          <div className="hero-band pointer-events-none absolute -left-16 top-8 h-24 w-56 rotate-[-16deg]" />
 
           <div className="relative flex flex-wrap items-start justify-between gap-6">
             <div>
               <div className="flex flex-wrap items-center gap-3">
-                <span className="inline-flex items-center border border-white/8 bg-black/25 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-text-secondary [clip-path:polygon(0_0,100%_0,92%_100%,0_100%)]">
+                <span className="inline-flex items-center border border-border/70 bg-surface-0/55 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-text-secondary [clip-path:polygon(0_0,100%_0,92%_100%,0_100%)]">
                   SlipStream // Session Library
                 </span>
                 <div className="flex items-center gap-2">
@@ -203,7 +203,7 @@ export function SessionsPage() {
                 </div>
               </div>
 
-              <h2 className="mt-6 text-4xl font-semibold tracking-tight text-white lg:text-[3.25rem] lg:leading-[1.02]">
+              <h2 className="mt-6 text-4xl font-semibold tracking-tight text-text-primary lg:text-[3.25rem] lg:leading-[1.02]">
                 Telemetry Sessions.
               </h2>
             </div>
@@ -217,7 +217,7 @@ export function SessionsPage() {
         </div>
       </section>
 
-      <section className="rounded-[28px] border border-white/6 bg-white/[0.02] p-4 sm:p-5">
+      <section className="rounded-[28px] border border-border/70 bg-surface-1/85 p-4 sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-3">
@@ -230,26 +230,26 @@ export function SessionsPage() {
                 <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
                   Capture
                 </p>
-                <p className="text-sm font-medium text-white">
+                <p className="text-sm font-medium text-text-primary">
                   {isCaptureActive ? "Live" : "Standby"}
                 </p>
               </div>
             </div>
 
-            <div className="border-l border-white/6 pl-4">
+            <div className="border-l border-border/70 pl-4">
               <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
                 Session
               </p>
-              <p className="max-w-[240px] truncate font-mono text-sm text-white">
+              <p className="max-w-[240px] truncate font-mono text-sm text-text-primary">
                 {liveSessionLabel}
               </p>
             </div>
 
-            <div className="border-l border-white/6 pl-4">
+            <div className="border-l border-border/70 pl-4">
               <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
                 Laps
               </p>
-              <p className="text-sm font-medium text-white">
+              <p className="text-sm font-medium text-text-primary">
                 {liveLapCount}
               </p>
             </div>
@@ -261,7 +261,7 @@ export function SessionsPage() {
               onClick={() => setShowCaptureSettings((current) => !current)}
               aria-expanded={showCaptureSettings}
               aria-controls={captureSettingsId}
-              className="inline-flex items-center gap-2 border border-white/8 bg-white/[0.03] px-3 py-2 text-[11px] font-medium uppercase tracking-[0.16em] text-text-secondary transition-colors hover:bg-white/[0.05] hover:text-white cursor-pointer"
+              className="inline-flex items-center gap-2 border border-border/70 bg-surface-2/84 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.16em] text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer"
             >
               <span>Capture Settings</span>
               <svg
@@ -304,7 +304,7 @@ export function SessionsPage() {
           }`}
         >
           <div className="overflow-hidden">
-            <div className="grid gap-4 border-t border-white/6 pt-4 md:grid-cols-[auto_auto_1fr]">
+            <div className="grid gap-4 border-t border-border/70 pt-4 md:grid-cols-[auto_auto_1fr]">
               <div>
                 <label className="mb-1 block text-xs text-text-muted">
                   IP Address
@@ -314,7 +314,7 @@ export function SessionsPage() {
                   value={capture.ip}
                   disabled={!showCaptureSettings || isCaptureActive}
                   onChange={(event) => capture.setIp(event.target.value)}
-                  className="w-full border-x-0 border-b border-t-0 border-white/12 bg-transparent px-0 py-2 text-sm text-text-secondary focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 md:w-40"
+                  className="w-full border-x-0 border-b border-t-0 border-border bg-transparent px-0 py-2 text-sm text-text-secondary focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 md:w-40"
                 />
               </div>
 
@@ -325,7 +325,7 @@ export function SessionsPage() {
                   value={capture.port}
                   disabled={!showCaptureSettings || isCaptureActive}
                   onChange={(event) => capture.setPort(event.target.value)}
-                  className="w-full border-x-0 border-b border-t-0 border-white/12 bg-transparent px-0 py-2 text-sm text-text-secondary focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 md:w-28"
+                  className="w-full border-x-0 border-b border-t-0 border-border bg-transparent px-0 py-2 text-sm text-text-secondary focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 md:w-28"
                 />
               </div>
 
@@ -346,7 +346,7 @@ export function SessionsPage() {
         )}
       </section>
 
-      <section className="rounded-[28px] border border-white/6 bg-white/[0.02] p-4 sm:p-5">
+      <section className="rounded-[28px] border border-border/70 bg-surface-1/85 p-4 sm:p-5">
         <div className="grid gap-3 xl:grid-cols-[minmax(0,1.6fr)_170px_170px_170px]">
           <label className="block">
             <span className="sr-only">Search sessions</span>
@@ -355,7 +355,7 @@ export function SessionsPage() {
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search session, track, layout, location"
-              className="w-full rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-text-secondary placeholder:text-text-muted focus:border-accent focus:outline-none"
+              className="w-full rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 text-sm text-text-secondary placeholder:text-text-muted focus:border-accent focus:outline-none"
             />
           </label>
 
@@ -365,7 +365,7 @@ export function SessionsPage() {
               <select
                 value={statusFilter}
                 onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-                className="w-full appearance-none rounded-2xl border border-white/8 bg-black/20 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
+                className="w-full appearance-none rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
               >
                 <option value="all">All Statuses</option>
                 <option value="processed">Processed</option>
@@ -393,7 +393,7 @@ export function SessionsPage() {
               <select
                 value={dateFilter}
                 onChange={(event) => setDateFilter(event.target.value)}
-                className="w-full appearance-none rounded-2xl border border-white/8 bg-black/20 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
+                className="w-full appearance-none rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
               >
                 <option value="">All Dates</option>
                 {dateOptions.map((option) => (
@@ -426,7 +426,7 @@ export function SessionsPage() {
                 onChange={(event) =>
                   setSortBy(event.target.value as SessionLibrarySort)
                 }
-                className="w-full appearance-none rounded-2xl border border-white/8 bg-black/20 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
+                className="w-full appearance-none rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
               >
                 <option value="newest">Newest First</option>
                 <option value="oldest">Oldest First</option>
@@ -450,14 +450,14 @@ export function SessionsPage() {
           </label>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-white/6 pt-3">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-3">
           <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-text-muted">
             <span>{filteredSessions.length} shown</span>
-            <span className="text-white/30">/</span>
+            <span className="text-text-muted/55">/</span>
             <span>{sessions.length} total</span>
             {liveSessionPinned && (
               <>
-                <span className="text-white/30">/</span>
+                <span className="text-text-muted/55">/</span>
                 <span className="text-accent">Live Pinned</span>
               </>
             )}
@@ -467,7 +467,7 @@ export function SessionsPage() {
             <button
               type="button"
               onClick={clearControls}
-              className="inline-flex items-center rounded-full border border-white/8 bg-white/[0.03] px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-text-secondary transition-colors hover:bg-white/[0.05] hover:text-white cursor-pointer"
+              className="inline-flex items-center rounded-full border border-border/70 bg-surface-2/84 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer"
             >
               Clear
             </button>
@@ -482,29 +482,29 @@ export function SessionsPage() {
       )}
 
       {loading ? (
-        <div className="rounded-[28px] border border-white/6 bg-white/[0.02] px-5 py-8 text-sm text-text-muted">
+        <div className="rounded-[28px] border border-border/70 bg-surface-1/85 px-5 py-8 text-sm text-text-muted">
           Loading sessions...
         </div>
       ) : sessions.length === 0 ? (
-        <div className="rounded-[28px] border border-dashed border-white/8 bg-white/[0.02] px-5 py-10 text-center">
+        <div className="rounded-[28px] border border-dashed border-border/70 bg-surface-1/85 px-5 py-10 text-center">
           <p className="text-sm font-medium text-text-secondary">
             No sessions in library.
           </p>
           <p className="mt-2 text-sm text-text-muted">Start capture to populate.</p>
         </div>
       ) : filteredSessions.length === 0 ? (
-        <div className="rounded-[28px] border border-dashed border-white/8 bg-white/[0.02] px-5 py-10 text-center">
+        <div className="rounded-[28px] border border-dashed border-border/70 bg-surface-1/85 px-5 py-10 text-center">
           <p className="text-sm font-medium text-text-secondary">No matches.</p>
           <button
             type="button"
             onClick={clearControls}
-            className="mt-3 inline-flex items-center rounded-full border border-accent/20 bg-accent/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:bg-accent/16 hover:text-white cursor-pointer"
+            className="mt-3 inline-flex items-center rounded-full border border-accent/20 bg-accent/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:bg-accent/16 hover:text-text-primary cursor-pointer"
           >
             Clear Filters
           </button>
         </div>
       ) : (
-        <section className="overflow-hidden rounded-[28px] border border-white/6 bg-white/[0.02]">
+        <section className="overflow-hidden rounded-[28px] border border-border/70 bg-surface-1/85">
           {filteredSessions.map((session) => (
             <SessionLibraryRow
               key={session.session_id}

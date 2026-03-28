@@ -20,7 +20,7 @@ export function CapturePanel({ onCaptureChange }: Props) {
   };
 
   return (
-    <div className="rounded-3xl border border-white/5 bg-white/[0.02]">
+    <div className="rounded-3xl border border-border/70 bg-surface-1/85">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center justify-between px-5 py-4 text-left cursor-pointer"
@@ -54,7 +54,7 @@ export function CapturePanel({ onCaptureChange }: Props) {
       </button>
 
       {expanded && (
-        <div className="space-y-4 border-t border-white/5 px-5 pb-5 pt-4">
+        <div className="space-y-4 border-t border-border/60 px-5 pb-5 pt-4">
           {!isActive && (
             <div className="flex gap-3">
               <div>
@@ -65,7 +65,7 @@ export function CapturePanel({ onCaptureChange }: Props) {
                   type="text"
                   value={capture.ip}
                   onChange={(e) => capture.setIp(e.target.value)}
-                  className="w-36 rounded-full border border-white/6 bg-black/30 px-3 py-2 text-sm focus:border-accent focus:outline-none"
+                  className="w-36 rounded-full border border-border/70 bg-surface-2/84 px-3 py-2 text-sm focus:border-accent focus:outline-none"
                 />
               </div>
               <div>
@@ -76,7 +76,7 @@ export function CapturePanel({ onCaptureChange }: Props) {
                   type="text"
                   value={capture.port}
                   onChange={(e) => capture.setPort(e.target.value)}
-                  className="w-24 rounded-full border border-white/6 bg-black/30 px-3 py-2 text-sm focus:border-accent focus:outline-none"
+                  className="w-24 rounded-full border border-border/70 bg-surface-2/84 px-3 py-2 text-sm focus:border-accent focus:outline-none"
                 />
               </div>
             </div>

@@ -9,11 +9,11 @@ import {
 } from "recharts";
 
 const COLORS = {
-  grid: "#1b1b1f",
-  axis: "#242428",
-  tick: "#6d6d74",
-  tooltipBg: "#111113",
-  tooltipBorder: "#2b2b31",
+  grid: "var(--app-chart-grid)",
+  axis: "var(--app-chart-axis)",
+  tick: "var(--app-chart-tick)",
+  tooltipBg: "var(--app-chart-tooltip-bg)",
+  tooltipBorder: "var(--app-chart-tooltip-border)",
 };
 
 interface Props {
@@ -35,14 +35,14 @@ export function LapChart({
 }: Props) {
   if (!data.length || !(yKey in data[0])) {
     return (
-      <div className="flex h-48 items-center justify-center rounded-3xl border border-white/5 bg-white/[0.02] p-4 text-sm text-text-muted">
+      <div className="flex h-48 items-center justify-center rounded-3xl border border-border/70 bg-surface-1/85 p-4 text-sm text-text-muted">
         No data for {label}
       </div>
     );
   }
 
   return (
-    <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-5">
+    <div className="rounded-3xl border border-border/70 bg-surface-1/85 p-5">
       <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.16em] text-text-muted">
         {label}
       </p>

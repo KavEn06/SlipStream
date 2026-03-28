@@ -1,10 +1,12 @@
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { SlimNavRail } from "./AppNavigation";
+import { AppearanceDrawer } from "./AppearanceDrawer";
 
 export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
 
   const header = useMemo(() => {
     if (location.pathname === "/") {
@@ -24,16 +26,24 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const showBackButton = location.pathname !== "/";
 
+  useEffect(() => {
+    setAppearanceOpen(false);
+  }, [location.pathname]);
+
   return (
-    <div className="flex min-h-screen">
-      <SlimNavRail pathname={location.pathname} />
+    <div className="flex min-h-screen text-text-primary">
+      <SlimNavRail
+        pathname={location.pathname}
+        appearanceOpen={appearanceOpen}
+        onOpenAppearance={() => setAppearanceOpen(true)}
+      />
       <main className="flex-1 px-5 py-6 lg:px-8 lg:py-8">
         <div className="mb-6 flex min-w-0 items-center gap-3">
           {showBackButton && (
             <button
               type="button"
               onClick={() => navigate(-1)}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/6 bg-white/[0.02] text-text-secondary transition-colors hover:bg-white/[0.04] hover:text-white cursor-pointer"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-surface-1/82 text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-text-primary cursor-pointer"
               aria-label="Go back"
             >
               <svg
@@ -60,6 +70,10 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
         <div className="mx-auto max-w-7xl">{children}</div>
       </main>
+      <AppearanceDrawer
+        open={appearanceOpen}
+        onClose={() => setAppearanceOpen(false)}
+      />
     </div>
   );
 }

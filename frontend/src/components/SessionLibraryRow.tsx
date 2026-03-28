@@ -32,10 +32,10 @@ export function SessionLibraryRow({
 
   return (
     <div
-      className={`group flex flex-col gap-4 border-b border-white/5 px-4 py-4 transition-colors last:border-b-0 sm:px-5 lg:flex-row lg:items-center lg:gap-6 ${
+      className={`group flex flex-col gap-4 border-b border-border/60 px-4 py-4 transition-colors last:border-b-0 sm:px-5 lg:flex-row lg:items-center lg:gap-6 ${
         isLive
           ? "bg-accent/[0.08] ring-1 ring-inset ring-accent/16"
-          : "bg-black/20 hover:bg-white/[0.03]"
+          : "bg-surface-2/75 hover:bg-surface-3/85"
       }`}
     >
       <Link to={sessionPath} className="min-w-0 flex-1">
@@ -46,7 +46,7 @@ export function SessionLibraryRow({
               Live
             </span>
           )}
-          <p className="font-mono text-sm font-medium text-white transition-colors group-hover:text-accent">
+          <p className="font-mono text-sm font-medium text-text-primary transition-colors group-hover:text-accent">
             {formatSessionTimestamp(session.session_id)}
           </p>
         </div>
@@ -65,7 +65,7 @@ export function SessionLibraryRow({
 
       <div className="flex flex-wrap items-center gap-3 lg:ml-auto lg:flex-nowrap">
         <div className="min-w-[110px] lg:text-right">
-          <p className="text-sm font-medium text-white">{session.total_laps} laps</p>
+          <p className="text-sm font-medium text-text-primary">{session.total_laps} laps</p>
           <p className="text-xs text-text-muted">{formatSessionDateLabel(session)}</p>
         </div>
 
@@ -92,7 +92,7 @@ export function SessionLibraryRow({
 
         <Link
           to={sessionPath}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/8 bg-white/[0.03] text-text-secondary transition-colors hover:border-accent/20 hover:bg-accent/10 hover:text-white"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-surface-1/82 text-text-secondary transition-colors hover:border-accent/20 hover:bg-accent/10 hover:text-text-primary"
           aria-label={`Open ${session.session_id}`}
         >
           <svg

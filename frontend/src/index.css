@@ -1,40 +1,118 @@
 @import "tailwindcss";
 
 @theme {
-  --color-surface-0: #050506;
-  --color-surface-1: #0b0b0c;
-  --color-surface-2: #111113;
-  --color-surface-3: #19191c;
-  --color-border: #242428;
-  --color-border-subtle: #151518;
-  --color-text-primary: #f2f2f3;
-  --color-text-secondary: #a4a4aa;
-  --color-text-muted: #6d6d74;
-  --color-accent: #d14b4b;
-  --color-accent-hover: #e16060;
-  --color-success: #79c08f;
-  --color-warning: #d0a15f;
-  --color-danger: #ff6b6b;
+  --color-surface-0: var(--app-surface-0);
+  --color-surface-1: var(--app-surface-1);
+  --color-surface-2: var(--app-surface-2);
+  --color-surface-3: var(--app-surface-3);
+  --color-border: var(--app-border);
+  --color-border-strong: var(--app-border-strong);
+  --color-text-primary: var(--app-text-primary);
+  --color-text-secondary: var(--app-text-secondary);
+  --color-text-muted: var(--app-text-muted);
+  --color-accent: var(--app-accent);
+  --color-accent-hover: var(--app-accent-hover);
+  --color-success: var(--app-success);
+  --color-warning: var(--app-warning);
+  --color-danger: var(--app-danger);
+}
+
+:root,
+html[data-theme="dark"] {
+  --app-surface-0: #040405;
+  --app-surface-1: #0b0b0c;
+  --app-surface-2: #111113;
+  --app-surface-3: #19191c;
+  --app-border: #242428;
+  --app-border-strong: #34343a;
+  --app-text-primary: #f2f2f3;
+  --app-text-secondary: #a4a4aa;
+  --app-text-muted: #6d6d74;
+  --app-accent: #d14b4b;
+  --app-accent-hover: #e16060;
+  --app-success: #79c08f;
+  --app-warning: #d0a15f;
+  --app-danger: #ff6b6b;
+  --app-body-bg:
+    radial-gradient(circle at top right, rgba(209, 75, 75, 0.08), transparent 28%),
+    linear-gradient(180deg, #070708 0%, #040405 100%);
+  --app-hero-overlay:
+    radial-gradient(circle at top left, rgba(209, 75, 75, 0.22), transparent 32%),
+    linear-gradient(118deg, rgba(255, 255, 255, 0.03), transparent 44%),
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.03) 0px,
+      rgba(255, 255, 255, 0.03) 1px,
+      transparent 1px,
+      transparent 18px
+    );
+  --app-hero-band-border: rgba(255, 255, 255, 0.08);
+  --app-hero-band-bg: rgba(255, 255, 255, 0.02);
+  --app-side-panel-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.24));
+  --app-shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.35);
+  --app-chart-grid: #1b1b1f;
+  --app-chart-axis: #242428;
+  --app-chart-tick: #6d6d74;
+  --app-chart-tooltip-bg: #111113;
+  --app-chart-tooltip-border: #2b2b31;
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  --app-surface-0: #ece4de;
+  --app-surface-1: #f8f3ef;
+  --app-surface-2: #fffaf7;
+  --app-surface-3: #f1e8e2;
+  --app-border: #d6cbc4;
+  --app-border-strong: #c4b7af;
+  --app-text-primary: #1b1716;
+  --app-text-secondary: #5f5551;
+  --app-text-muted: #8a7c75;
+  --app-accent: #c34b47;
+  --app-accent-hover: #ad3f3d;
+  --app-success: #2d7f4b;
+  --app-warning: #a77023;
+  --app-danger: #be4545;
+  --app-body-bg:
+    radial-gradient(circle at top right, rgba(195, 75, 71, 0.12), transparent 26%),
+    linear-gradient(180deg, #f8f2ee 0%, #ece4de 100%);
+  --app-hero-overlay:
+    radial-gradient(circle at top left, rgba(195, 75, 71, 0.14), transparent 32%),
+    linear-gradient(118deg, rgba(255, 255, 255, 0.58), transparent 46%),
+    repeating-linear-gradient(
+      135deg,
+      rgba(92, 73, 66, 0.05) 0px,
+      rgba(92, 73, 66, 0.05) 1px,
+      transparent 1px,
+      transparent 18px
+    );
+  --app-hero-band-border: rgba(108, 87, 81, 0.16);
+  --app-hero-band-bg: rgba(255, 255, 255, 0.38);
+  --app-side-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(233, 223, 216, 0.72));
+  --app-shadow-lg: 0 26px 48px rgba(126, 102, 92, 0.18);
+  --app-chart-grid: #d8cec8;
+  --app-chart-axis: #b8aca5;
+  --app-chart-tick: #867973;
+  --app-chart-tooltip-bg: #fff7f2;
+  --app-chart-tooltip-border: #d8cbc4;
+  color-scheme: light;
 }
 
 html,
 body,
 #root {
-  background-color: #040405;
+  background-color: var(--app-surface-0);
 }
 
 html {
   min-height: 100%;
-  color-scheme: dark;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top right, rgba(209, 75, 75, 0.08), transparent 28%),
-    linear-gradient(180deg, #070708 0%, #040405 100%);
-  color: var(--color-text-primary);
+  background: var(--app-body-bg);
+  color: var(--app-text-primary);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -58,4 +136,22 @@ button,
 select {
   font-family: inherit;
   color: inherit;
+}
+
+.hero-overlay {
+  background: var(--app-hero-overlay);
+}
+
+.hero-band {
+  border-top: 1px solid var(--app-hero-band-border);
+  border-bottom: 1px solid var(--app-hero-band-border);
+  background: var(--app-hero-band-bg);
+}
+
+.side-panel-surface {
+  background: var(--app-side-panel-bg);
+}
+
+.themed-shadow-lg {
+  box-shadow: var(--app-shadow-lg);
 }
