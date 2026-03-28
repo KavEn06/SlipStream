@@ -19,6 +19,14 @@ export interface TrackBreakdownItem {
   share: number;
 }
 
+export interface FavoriteCarInsight {
+  carOrdinal: number;
+  sessions: number;
+  laps: number;
+  processedSessions: number;
+  topTrack: string;
+}
+
 function parseSessionDate(session: SessionSummary): Date | null {
   if (session.created_at_utc) {
     const parsed = new Date(session.created_at_utc);
@@ -151,6 +159,71 @@ export function deriveTrackBreakdown(
     ...item,
     share: item.sessions / maxSessions,
   }));
+}
+
+export function deriveFavoriteCar(
+  sessions: SessionSummary[],
+): FavoriteCarInsight | null {
+  const grouped = new Map<
+    number,
+    {
+      sessions: number;
+      laps: number;
+      processedSessions: number;
+      tracks: Map<string, number>;
+    }
+  >();
+
+  sessions.forEach((session) => {
+    if (session.car_ordinal === null || session.car_ordinal === undefined) {
+      return;
+    }
+
+    const current = grouped.get(session.car_ordinal) ?? {
+      sessions: 0,
+      laps: 0,
+      processedSessions: 0,
+      tracks: new Map<string, number>(),
+    };
+
+    current.sessions += 1;
+    current.laps += session.total_laps;
+    if (session.has_processed) {
+      current.processedSessions += 1;
+    }
+
+    const trackName = getSessionTrackName(session);
+    current.tracks.set(trackName, (current.tracks.get(trackName) ?? 0) + 1);
+
+    grouped.set(session.car_ordinal, current);
+  });
+
+  const favoriteEntry = Array.from(grouped.entries()).sort(
+    ([leftOrdinal, left], [rightOrdinal, right]) =>
+      right.sessions - left.sessions ||
+      right.laps - left.laps ||
+      right.processedSessions - left.processedSessions ||
+      leftOrdinal - rightOrdinal,
+  )[0];
+
+  if (!favoriteEntry) {
+    return null;
+  }
+
+  const [carOrdinal, stats] = favoriteEntry;
+  const topTrack =
+    Array.from(stats.tracks.entries()).sort(
+      ([leftTrack, leftCount], [rightTrack, rightCount]) =>
+        rightCount - leftCount || leftTrack.localeCompare(rightTrack),
+    )[0]?.[0] ?? "Unknown Track";
+
+  return {
+    carOrdinal,
+    sessions: stats.sessions,
+    laps: stats.laps,
+    processedSessions: stats.processedSessions,
+    topTrack,
+  };
 }
 
 export function getRecentSessions(

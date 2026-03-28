@@ -54,19 +54,25 @@ function SessionsIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={1.8}
-        d="M4.5 6.75h15"
+        d="M7.5 3.75h6.879a1.5 1.5 0 0 1 1.06.44l2.371 2.37a1.5 1.5 0 0 1 .44 1.061V18.75A1.5 1.5 0 0 1 16.75 20.25h-9.25A1.5 1.5 0 0 1 6 18.75V5.25a1.5 1.5 0 0 1 1.5-1.5Z"
       />
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={1.8}
-        d="M4.5 12h15"
+        d="M14.25 3.75v3.375c0 .414.336.75.75.75h3.375"
       />
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={1.8}
-        d="M4.5 17.25h15"
+        d="M8.625 11.25h6.75"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+        d="M8.625 15h6.75"
       />
     </svg>
   );
@@ -88,8 +94,8 @@ export function SlimNavRail({ pathname }: { pathname: string }) {
     : "Standby";
 
   return (
-    <aside className="shrink-0 border-r border-white/4 bg-black/30 backdrop-blur">
-      <div className="flex min-h-screen w-20 flex-col items-center px-3 py-5">
+    <aside className="sticky top-0 h-screen shrink-0 self-start border-r border-white/4 bg-black/30 backdrop-blur">
+      <div className="flex h-full w-20 flex-col items-center px-3 py-5">
         <Link
           to="/"
           className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/8 bg-white/[0.03] text-sm font-semibold tracking-[0.2em] text-white"

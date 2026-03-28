@@ -6,10 +6,12 @@ import { useCaptureController } from "../hooks/useCaptureController";
 import type { SessionDetail, SessionSummary } from "../types";
 import {
   deriveDashboardKpis,
+  deriveFavoriteCar,
   deriveTrackBreakdown,
   formatSessionDateLabel,
   formatSessionTimestamp,
   getRecentSessions,
+  getSessionCarLabel,
   getSessionVehicleTrackLabel,
 } from "../utils/sessions";
 
@@ -45,13 +47,6 @@ function DetailRow({
       <span className="text-right text-sm text-text-secondary">{value}</span>
     </div>
   );
-}
-
-function getCarNameLabel(carOrdinal: number | null | undefined): string {
-  if (carOrdinal === null || carOrdinal === undefined) {
-    return "No Active Vehicle";
-  }
-  return `Car #${carOrdinal}`;
 }
 
 export function HomePage() {
@@ -138,6 +133,7 @@ export function HomePage() {
   }, [capture.status?.is_active, capture.status?.session_id]);
 
   const kpis = useMemo(() => deriveDashboardKpis(sessions), [sessions]);
+  const favoriteCar = useMemo(() => deriveFavoriteCar(sessions), [sessions]);
   const trackBreakdown = useMemo(() => deriveTrackBreakdown(sessions), [sessions]);
   const recentSessions = useMemo(() => getRecentSessions(sessions, 5), [sessions]);
   const activeSessionSummary = useMemo(
@@ -160,7 +156,8 @@ export function HomePage() {
     activeSession?.track_location ?? activeSessionSummary?.track_location ?? "--";
   const activeCarOrdinal =
     activeSession?.car_ordinal ?? activeSessionSummary?.car_ordinal;
-  const carNameLabel = getCarNameLabel(activeCarOrdinal);
+  const carNameLabel =
+    getSessionCarLabel(activeCarOrdinal) ?? "No Active Vehicle";
   const heroVehicleTrackLabel = getSessionVehicleTrackLabel({
     car_ordinal: activeCarOrdinal ?? null,
     track_circuit: heroTrack,
@@ -475,6 +472,85 @@ export function HomePage() {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="overflow-hidden rounded-[28px] border border-white/6 bg-white/[0.02]">
+        <div className="grid gap-0 lg:grid-cols-[minmax(0,1.3fr)_360px]">
+          <div className="relative overflow-hidden px-5 py-6 lg:px-6">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(209,75,75,0.18),transparent_34%),linear-gradient(115deg,rgba(255,255,255,0.02),transparent_50%)]" />
+            <div className="relative">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
+                Favourite Car
+              </p>
+
+              {favoriteCar ? (
+                <>
+                  <h3 className="mt-3 text-3xl font-semibold tracking-tight text-white lg:text-[2.5rem]">
+                    {getSessionCarLabel(favoriteCar.carOrdinal)}
+                  </h3>
+                  <p className="mt-2 text-sm uppercase tracking-[0.2em] text-text-muted">
+                    {favoriteCar.topTrack}
+                  </p>
+
+                  <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-white/6 bg-black/20 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
+                        Sessions
+                      </p>
+                      <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
+                        {favoriteCar.sessions}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/6 bg-black/20 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
+                        Laps
+                      </p>
+                      <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
+                        {favoriteCar.laps}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/6 bg-black/20 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
+                        Processed
+                      </p>
+                      <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
+                        {favoriteCar.processedSessions}
+                      </p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-5 rounded-3xl border border-dashed border-white/8 bg-black/20 p-8 text-center text-sm text-text-secondary">
+                  No vehicle data
+                </div>
+              )}
+            </div>
+          </div>
+
+          <aside className="border-t border-white/5 bg-[linear-gradient(180deg,rgba(0,0,0,0.12),rgba(0,0,0,0.24))] px-5 py-6 lg:border-l lg:border-t-0 lg:px-6">
+            <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">
+              Garage Focus
+            </p>
+
+            {favoriteCar ? (
+              <div className="mt-5 space-y-3">
+                <DetailRow
+                  label="Vehicle"
+                  value={getSessionCarLabel(favoriteCar.carOrdinal) ?? "--"}
+                />
+                <DetailRow label="Top Track" value={favoriteCar.topTrack} />
+                <DetailRow
+                  label="Usage"
+                  value={`${favoriteCar.sessions} sessions`}
+                />
+              </div>
+            ) : (
+              <div className="mt-5 rounded-2xl border border-dashed border-white/8 bg-black/20 p-5 text-sm text-text-secondary">
+                Capture and review more sessions to build vehicle trends.
+              </div>
+            )}
+          </aside>
+        </div>
       </section>
     </div>
   );
