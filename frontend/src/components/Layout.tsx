@@ -1,12 +1,11 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Sidebar } from "./Sidebar";
+import { SlimNavRail } from "./AppNavigation";
 
 export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const toggleSidebar = () => setSidebarOpen((current) => !current);
+
   const header = useMemo(() => {
     if (location.pathname === "/") {
       return { eyebrow: "Home", title: "Dashboard" };
@@ -22,13 +21,14 @@ export function Layout({ children }: { children: ReactNode }) {
     }
     return { eyebrow: "SlipStream", title: "Telemetry Coach" };
   }, [location.pathname]);
+
   const showBackButton = location.pathname !== "/";
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar isOpen={sidebarOpen} onToggle={toggleSidebar} />
+      <SlimNavRail pathname={location.pathname} />
       <main className="flex-1 px-5 py-6 lg:px-8 lg:py-8">
-        <div className="mb-6 flex items-center gap-3 min-w-0">
+        <div className="mb-6 flex min-w-0 items-center gap-3">
           {showBackButton && (
             <button
               type="button"

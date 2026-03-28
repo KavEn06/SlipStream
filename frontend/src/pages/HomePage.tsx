@@ -183,7 +183,7 @@ export function HomePage() {
   };
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="max-w-7xl space-y-6">
       <section className="space-y-4">
         <div className="overflow-hidden rounded-[30px] border border-white/6 bg-white/[0.02]">
           <div className="grid gap-0 xl:grid-cols-[minmax(0,1.8fr)_300px]">

@@ -179,7 +179,7 @@ export function SessionsPage() {
   const liveLapCount = isCaptureActive ? capture.status?.laps_detected ?? 0 : 0;
 
   return (
-    <div className="max-w-6xl space-y-5">
+    <div className="max-w-7xl space-y-5">
       <section className="overflow-hidden rounded-[30px] border border-white/6 bg-white/[0.02]">
         <div className="relative px-6 py-6 lg:px-8 lg:py-7">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(209,75,75,0.18),transparent_30%),linear-gradient(118deg,rgba(255,255,255,0.03),transparent_44%),repeating-linear-gradient(135deg,rgba(255,255,255,0.03)_0px,rgba(255,255,255,0.03)_1px,transparent_1px,transparent_18px)]" />
