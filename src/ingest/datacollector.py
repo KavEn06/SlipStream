@@ -10,7 +10,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src.core.config import DEFAULT_LISTEN_IP, DEFAULT_LISTEN_PORT, DEFAULT_SIM_NAME, get_session_paths
-from src.core.schemas import RAW_LAP_COLUMNS, SCHEMA_VERSION, SessionMetadata
+from src.core.schemas import (
+    LAP_CLOSE_REASON_CAPTURE_END,
+    LAP_CLOSE_REASON_LAP_ROLLOVER,
+    RAW_LAP_COLUMNS,
+    SCHEMA_VERSION,
+    SessionMetadata,
+)
 from src.core.tracks import get_track_metadata
 
 
@@ -110,7 +116,13 @@ class ForzaTelemetryDecoder:
 
 
 class datacollector:
-    def __init__(self, ip: str = DEFAULT_LISTEN_IP, port: int = DEFAULT_LISTEN_PORT, session_id: str | None = None):
+    def __init__(
+        self,
+        ip: str = DEFAULT_LISTEN_IP,
+        port: int = DEFAULT_LISTEN_PORT,
+        session_id: str | None = None,
+        bind_socket: bool = True,
+    ):
         self.ip = ip
         self.port = port
         self.decoder = ForzaTelemetryDecoder()
@@ -120,13 +132,15 @@ class datacollector:
         self.session_paths.processed_dir.mkdir(parents=True, exist_ok=True)
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind((self.ip, self.port))
+        if bind_socket:
+            self.sock.bind((self.ip, self.port))
 
         self.current_lap_number = -1
         self.output_file = None
         self.csv_writer = None
         self.completed_laps: set[int] = set()
         self.row_count = 0
+        self.lap_index: dict[str, dict[str, int | str | None]] = {}
 
         self.car_ordinal: int | None = None
         self.track_ordinal: int | None = None
@@ -145,6 +159,7 @@ class datacollector:
             track_location=None,
             track_length_m=None,
             total_laps=0,
+            lap_index={},
             notes="",
         )
 
@@ -158,20 +173,22 @@ class datacollector:
 
         self._update_metadata_from_telemetry(telemetry)
         lap_number = int(telemetry["LapNumber"])
+        timestamp_ms = int(telemetry["TimestampMS"])
 
         if self.current_lap_number == -1:
-            self.start_new_lap_file(lap_number)
+            self.start_new_lap_file(lap_number, timestamp_ms)
         elif lap_number != self.current_lap_number:
-            self.finalize_current_lap()
-            self.start_new_lap_file(lap_number)
+            self.finalize_current_lap(close_reason=LAP_CLOSE_REASON_LAP_ROLLOVER)
+            self.start_new_lap_file(lap_number, timestamp_ms)
 
         if self.csv_writer is not None:
             self.csv_writer.writerow([telemetry[column] for column in RAW_LAP_COLUMNS])
+            self._record_lap_timestamp(lap_number, timestamp_ms)
             self.row_count += 1
 
-    def start_new_lap_file(self, lap_num: int) -> None:
-        self.finalize_current_lap()
+    def start_new_lap_file(self, lap_num: int, timestamp_ms: int | None = None) -> None:
         self.current_lap_number = lap_num
+        self._ensure_lap_index_entry(lap_num, timestamp_ms)
 
         filename = self.session_paths.raw_dir / f"lap_{lap_num:03d}.csv"
         print(f"Recording lap {lap_num} to {filename}")
@@ -179,7 +196,7 @@ class datacollector:
         self.csv_writer = csv.writer(self.output_file)
         self.csv_writer.writerow(RAW_LAP_COLUMNS)
 
-    def finalize_current_lap(self) -> None:
+    def finalize_current_lap(self, close_reason: str | None = None) -> None:
         if self.output_file is None:
             return
 
@@ -189,6 +206,7 @@ class datacollector:
 
         if self.current_lap_number >= 0:
             self.completed_laps.add(self.current_lap_number)
+            self._set_lap_close_reason(self.current_lap_number, close_reason)
 
     def _update_metadata_from_telemetry(self, telemetry: dict[str, float | int]) -> None:
         self.car_ordinal = int(telemetry["CarOrdinal"])
@@ -208,13 +226,17 @@ class datacollector:
 
     def write_metadata(self) -> None:
         current_lap_total = len(self.completed_laps) + (1 if self.output_file is not None else 0)
-        metadata = replace(self.metadata, total_laps=current_lap_total)
+        metadata = replace(
+            self.metadata,
+            total_laps=current_lap_total,
+            lap_index={lap_number: dict(entry) for lap_number, entry in self.lap_index.items()},
+        )
 
         with self.session_paths.raw_metadata_path.open("w", encoding="utf-8") as json_file:
             json.dump(metadata.to_dict(), json_file, indent=2)
 
     def end_collection(self) -> None:
-        self.finalize_current_lap()
+        self.finalize_current_lap(close_reason=LAP_CLOSE_REASON_CAPTURE_END)
         self.write_metadata()
         self.current_lap_number = -1
 
@@ -228,6 +250,29 @@ class datacollector:
         except KeyboardInterrupt:
             self.end_collection()
             print("\nStopped logging.")
+
+    def _ensure_lap_index_entry(self, lap_num: int, timestamp_ms: int | None = None) -> None:
+        lap_key = str(lap_num)
+        if lap_key not in self.lap_index:
+            self.lap_index[lap_key] = {
+                "close_reason": None,
+                "first_timestamp_ms": timestamp_ms,
+                "last_timestamp_ms": timestamp_ms,
+            }
+            return
+
+        if timestamp_ms is not None:
+            if self.lap_index[lap_key]["first_timestamp_ms"] is None:
+                self.lap_index[lap_key]["first_timestamp_ms"] = timestamp_ms
+            self.lap_index[lap_key]["last_timestamp_ms"] = timestamp_ms
+
+    def _record_lap_timestamp(self, lap_num: int, timestamp_ms: int) -> None:
+        self._ensure_lap_index_entry(lap_num, timestamp_ms)
+        self.lap_index[str(lap_num)]["last_timestamp_ms"] = timestamp_ms
+
+    def _set_lap_close_reason(self, lap_num: int, close_reason: str | None) -> None:
+        self._ensure_lap_index_entry(lap_num)
+        self.lap_index[str(lap_num)]["close_reason"] = close_reason
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

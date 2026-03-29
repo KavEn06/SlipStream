@@ -1,10 +1,45 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-SCHEMA_VERSION = "2026.03-phase1"
+SCHEMA_VERSION = "2026.03-phase2-lapvalidation"
+VALIDATION_THRESHOLDS_VERSION = "v1-fixed"
+
+VALIDATION_REASON_TOO_FEW_SAMPLES = "too_few_samples"
+VALIDATION_REASON_NON_MONOTONIC_TIMESTAMP = "non_monotonic_timestamp"
+VALIDATION_REASON_NON_MONOTONIC_CURRENT_LAP_TIME = "non_monotonic_current_lap_time"
+VALIDATION_REASON_NO_FORWARD_DISTANCE = "no_forward_distance"
+VALIDATION_REASON_PARTIAL_LAP_START = "partial_lap_start"
+VALIDATION_REASON_PARTIAL_LAP_END = "partial_lap_end"
+VALIDATION_REASON_MISSING_REQUIRED_SIGNALS = "missing_required_signals"
+
+VALIDATION_REASON_CODES = (
+    VALIDATION_REASON_TOO_FEW_SAMPLES,
+    VALIDATION_REASON_NON_MONOTONIC_TIMESTAMP,
+    VALIDATION_REASON_NON_MONOTONIC_CURRENT_LAP_TIME,
+    VALIDATION_REASON_NO_FORWARD_DISTANCE,
+    VALIDATION_REASON_PARTIAL_LAP_START,
+    VALIDATION_REASON_PARTIAL_LAP_END,
+    VALIDATION_REASON_MISSING_REQUIRED_SIGNALS,
+)
+
+VALIDATION_REQUIRED_NUMERIC_COLUMNS = (
+    "TimestampMS",
+    "CurrentLap",
+    "LapNumber",
+    "Speed",
+    "Accel",
+    "Brake",
+    "Clutch",
+    "HandBrake",
+    "Gear",
+    "Steer",
+)
+
+LAP_CLOSE_REASON_LAP_ROLLOVER = "lap_rollover"
+LAP_CLOSE_REASON_CAPTURE_END = "capture_end"
 
 RAW_LAP_COLUMNS = [
     "IsRaceOn",
@@ -102,7 +137,31 @@ class SessionMetadata:
     track_location: str | None
     track_length_m: float | None
     total_laps: int
+    lap_index: dict[str, dict[str, Any]] = field(default_factory=dict)
     notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class LapValidationContext:
+    close_reason: str | None = None
+    first_timestamp_ms: int | None = None
+    last_timestamp_ms: int | None = None
+    track_length_m: float | None = None
+
+
+@dataclass(frozen=True)
+class LapValidationResult:
+    schema_version: str
+    session_id: str
+    lap_number: int
+    lap_is_valid: bool
+    status: str
+    reason_codes: list[str] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+    thresholds_version: str = VALIDATION_THRESHOLDS_VERSION
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

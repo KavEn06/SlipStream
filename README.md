@@ -69,6 +69,17 @@ Build processed laps for a session:
 python3 src/processing/distance.py data/raw/session_20260316_120000
 ```
 
+Build a single raw lap without overwriting the source CSV:
+
+```bash
+python3 src/processing/distance.py data/raw/session_20260316_120000/lap_001.csv
+```
+
+When single-lap output is omitted, SlipStream writes a derived processed file to a safe path:
+
+- under `data/raw/...`, it mirrors the file into `data/processed/...`
+- outside `data/raw/...`, it writes a sibling file named `<stem>.processed.csv`
+
 Plot a raw or processed lap for debugging:
 
 ```bash
