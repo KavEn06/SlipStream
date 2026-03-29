@@ -11,11 +11,22 @@ import pandas as pd
 from src.core.config import DEFAULT_RESAMPLE_POINTS, PROCESSED_DATA_ROOT, RAW_DATA_ROOT, get_session_paths
 from src.core.schemas import PROCESSED_LAP_COLUMNS, RAW_LAP_COLUMNS, REFERENCE_LAP_COLUMNS, SCHEMA_VERSION
 from src.core.schemas import LapValidationResult
+from src.processing.alignment import align_session_laps
 from src.processing.validation import build_validation_context, evaluate_lap_validation, write_validation_result
 
 
 RAW_REQUIRED_COLUMNS = set(RAW_LAP_COLUMNS)
 LAP_FILE_PATTERN = re.compile(r"lap_(\d+)\.csv$")
+DISTANCE_SPIKE_RATIO = 3.0
+DISTANCE_SPIKE_ABS_TOLERANCE_M = 5.0
+DISTANCE_DIVERGENCE_RATIO = 0.15
+DISCRETE_RESAMPLE_COLUMNS = {
+    "Gear",
+    "IsCoasting",
+    "LapIsValid",
+    "AlignmentUsedFallback",
+    "AlignmentIsUsable",
+}
 
 
 def _coerce_numeric(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
@@ -45,20 +56,66 @@ def _safe_delta_time(elapsed_time_s: pd.Series) -> pd.Series:
     return delta_time
 
 
+def _distance_traveled_progress_series(df: pd.DataFrame) -> pd.Series:
+    distance_traveled = pd.to_numeric(df["DistanceTraveled"], errors="coerce").ffill().bfill().fillna(0.0)
+    distance_traveled = distance_traveled - float(distance_traveled.iloc[0])
+    return distance_traveled.clip(lower=0.0)
+
+
+def _geometric_step_distance_series(df: pd.DataFrame) -> pd.Series | None:
+    position_columns = ["PositionX", "PositionY", "PositionZ"]
+    position_df = df[position_columns].apply(pd.to_numeric, errors="coerce")
+    finite_rows = position_df.notna().all(axis=1)
+    if int(finite_rows.sum()) < 2:
+        return None
+
+    interpolated_positions = position_df.interpolate(method="linear", limit_direction="both")
+    if interpolated_positions.isna().any().any():
+        return None
+
+    deltas = interpolated_positions.diff().fillna(0.0)
+    return np.sqrt((deltas**2).sum(axis=1))
+
+
 def calculate_distance_series(df: pd.DataFrame) -> pd.Series:
     position_columns = ["PositionX", "PositionY", "PositionZ"]
     _coerce_numeric(df, position_columns + ["DistanceTraveled"])
+    distance_traveled_progress = _distance_traveled_progress_series(df)
+    geometric_step_distance = _geometric_step_distance_series(df)
 
-    if df[position_columns].notna().all().all():
-        deltas = df[position_columns].diff().fillna(0.0)
-        step_distance = np.sqrt((deltas**2).sum(axis=1))
-        cumulative_distance = step_distance.cumsum()
-        if float(cumulative_distance.iloc[-1]) > 0:
-            return cumulative_distance
+    if geometric_step_distance is None:
+        return distance_traveled_progress
 
-    distance_traveled = df["DistanceTraveled"].fillna(method="ffill").fillna(0.0)
-    distance_traveled = distance_traveled - float(distance_traveled.iloc[0])
-    return distance_traveled.clip(lower=0.0)
+    distance_traveled_step = distance_traveled_progress.diff().fillna(0.0).clip(lower=0.0)
+    positive_distance_steps = distance_traveled_step[distance_traveled_step > 0]
+    median_distance_step = float(positive_distance_steps.median()) if not positive_distance_steps.empty else 0.0
+    spike_threshold = np.maximum(
+        distance_traveled_step * DISTANCE_SPIKE_RATIO + DISTANCE_SPIKE_ABS_TOLERANCE_M,
+        median_distance_step * DISTANCE_SPIKE_RATIO + DISTANCE_SPIKE_ABS_TOLERANCE_M,
+    )
+
+    repaired_step_distance = geometric_step_distance.copy()
+    suspicious_step_mask = repaired_step_distance > spike_threshold
+    if suspicious_step_mask.any():
+        repaired_step_distance = repaired_step_distance.where(~suspicious_step_mask, distance_traveled_step)
+    repaired_step_distance = repaired_step_distance.fillna(distance_traveled_step).fillna(0.0)
+
+    cumulative_distance = repaired_step_distance.cumsum()
+    geometric_total_distance = float(cumulative_distance.iloc[-1])
+    distance_traveled_total = float(distance_traveled_progress.iloc[-1])
+
+    if geometric_total_distance <= 0:
+        return distance_traveled_progress
+
+    if distance_traveled_total > 0:
+        total_distance_divergence_ratio = abs(geometric_total_distance - distance_traveled_total) / max(
+            distance_traveled_total,
+            1.0,
+        )
+        if total_distance_divergence_ratio > DISTANCE_DIVERGENCE_RATIO:
+            return distance_traveled_progress
+
+    return cumulative_distance
 
 
 def _differentiate(series: pd.Series, delta_time_s: pd.Series) -> pd.Series:
@@ -93,7 +150,7 @@ def _build_processed_lap_dataframe_with_validation(
     lap_distance_m = float(cumulative_distance_m.iloc[-1])
 
     if lap_distance_m <= 0:
-        normalized_distance = pd.Series(np.linspace(0.0, 1.0, len(processed_input_df)), index=processed_input_df.index)
+        normalized_distance = pd.Series(0.0, index=processed_input_df.index, dtype=float)
     else:
         normalized_distance = cumulative_distance_m / lap_distance_m
 
@@ -129,6 +186,10 @@ def _build_processed_lap_dataframe_with_validation(
             "DistanceTraveledM": processed_input_df["DistanceTraveled"].fillna(0.0).clip(lower=0.0),
             "CumulativeDistanceM": cumulative_distance_m,
             "NormalizedDistance": normalized_distance.clip(lower=0.0, upper=1.0),
+            "TrackProgressM": np.nan,
+            "TrackProgressNorm": np.nan,
+            "AlignmentResidualM": np.nan,
+            "AlignmentUsedFallback": 0,
             "SpeedMps": speed_mps,
             "SpeedKph": speed_kph,
             "EngineRpm": processed_input_df["CurrentEngineRpm"],
@@ -149,6 +210,7 @@ def _build_processed_lap_dataframe_with_validation(
             "IsCoasting": is_coasting.astype(int),
             "LapTimeS": lap_time_s,
             "LapIsValid": 0,
+            "AlignmentIsUsable": 0,
         }
     )
 
@@ -183,15 +245,16 @@ def build_processed_lap_file(
     processed_path = _resolve_processed_output_path(raw_path, processed_csv_path)
     raw_df = pd.read_csv(raw_path)
     metadata = session_metadata if session_metadata is not None else _load_session_metadata(raw_path.parent)
+    resolved_session_id = _resolve_session_id(session_id, raw_path, metadata)
     lap_number = _resolve_lap_number(raw_df, raw_path)
     processed_df, validation_result = _build_processed_lap_dataframe_with_validation(
         raw_df,
-        session_id=session_id,
+        session_id=resolved_session_id,
         session_metadata=metadata,
         lap_number=lap_number,
     )
     processed_path.parent.mkdir(parents=True, exist_ok=True)
-    processed_df.to_csv(processed_path, index=False)
+    processed_df[PROCESSED_LAP_COLUMNS].to_csv(processed_path, index=False)
     write_validation_result(validation_result, processed_path)
     return processed_df
 
@@ -214,7 +277,7 @@ def resample_processed_lap(
             continue
 
         series = ordered_df[column]
-        if series.dtype == bool or series.dropna().isin([0, 1]).all():
+        if column in DISCRETE_RESAMPLE_COLUMNS or series.dtype == bool or series.dropna().isin([0, 1]).all():
             interpolated = np.interp(grid, ordered_df["NormalizedDistance"], series.astype(float))
             resampled_df[column] = np.rint(interpolated).astype(int)
         else:
@@ -229,32 +292,70 @@ def load_processed_lap(path: str | Path) -> pd.DataFrame:
 
 def process_session(raw_session_dir: str | Path, processed_session_dir: str | Path | None = None) -> list[Path]:
     raw_dir = Path(raw_session_dir)
+    session_id = raw_dir.name
     if processed_session_dir is None:
-        session_id = raw_dir.name
         processed_dir = get_session_paths(session_id).processed_dir
     else:
         processed_dir = Path(processed_session_dir)
 
+    _validate_session_processing_paths(raw_dir, processed_dir)
     processed_dir.mkdir(parents=True, exist_ok=True)
+    _clear_managed_processed_artifacts(processed_dir)
     written_paths: list[Path] = []
-    session_id = raw_dir.name
     session_metadata = _load_session_metadata(raw_dir)
+    staged_laps: list[dict[str, object]] = []
 
     for raw_lap_path in sorted(raw_dir.glob("lap_*.csv")):
-        processed_lap_path = processed_dir / raw_lap_path.name
-        build_processed_lap_file(
-            raw_lap_path,
-            processed_lap_path,
+        raw_df = pd.read_csv(raw_lap_path)
+        lap_number = _resolve_lap_number(raw_df, raw_lap_path)
+        processed_df, validation_result = _build_processed_lap_dataframe_with_validation(
+            raw_df,
             session_id=session_id,
             session_metadata=session_metadata,
+            lap_number=lap_number,
         )
-        written_paths.append(processed_lap_path)
+        resolved_lap_number = int(validation_result.lap_number)
+        staged_laps.append(
+            {
+                "lap_number": resolved_lap_number,
+                "processed_path": processed_dir / raw_lap_path.name,
+                "processed_df": processed_df,
+                "validation_result": validation_result,
+            }
+        )
 
-    metadata_path = raw_dir / "metadata.json"
-    if metadata_path.exists():
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        metadata["processed_schema_version"] = SCHEMA_VERSION
-        (processed_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    duplicate_lap_numbers = _find_duplicate_lap_numbers(staged_laps)
+    if duplicate_lap_numbers:
+        duplicate_list = ", ".join(str(lap_number) for lap_number in duplicate_lap_numbers)
+        raise ValueError(f"Duplicate logical lap numbers detected during session processing: {duplicate_list}")
+
+    processed_laps = {
+        int(staged_lap["lap_number"]): staged_lap["processed_df"]
+        for staged_lap in staged_laps
+    }
+    alignment_artifacts = align_session_laps(processed_laps)
+
+    for staged_lap in staged_laps:
+        lap_number = int(staged_lap["lap_number"])
+        processed_path = Path(staged_lap["processed_path"])
+        aligned_df = alignment_artifacts.aligned_laps.get(lap_number, staged_lap["processed_df"])
+        validation_result = staged_lap["validation_result"]
+        processed_path.parent.mkdir(parents=True, exist_ok=True)
+        aligned_df[PROCESSED_LAP_COLUMNS].to_csv(processed_path, index=False)
+        write_validation_result(validation_result, processed_path)
+        written_paths.append(processed_path)
+
+    if alignment_artifacts.reference_path is not None:
+        reference_path = processed_dir / "reference_path.csv"
+        alignment_artifacts.reference_path.to_csv(reference_path, index=False)
+
+    processed_metadata = _build_processed_session_metadata(
+        session_id=session_id,
+        session_metadata=session_metadata,
+        total_laps=len(staged_laps),
+        alignment_metadata=alignment_artifacts.metadata,
+    )
+    (processed_dir / "metadata.json").write_text(json.dumps(processed_metadata, indent=2), encoding="utf-8")
 
     return written_paths
 
@@ -335,6 +436,69 @@ def _resolve_processed_output_path(
 
 def _paths_equal(path_a: str | Path, path_b: str | Path) -> bool:
     return Path(path_a).expanduser().resolve() == Path(path_b).expanduser().resolve()
+
+
+def _resolve_session_id(
+    session_id: str,
+    raw_csv_path: Path,
+    session_metadata: dict[str, object] | None,
+) -> str:
+    if session_id:
+        return session_id
+
+    if session_metadata is not None:
+        metadata_session_id = session_metadata.get("session_id")
+        if metadata_session_id:
+            return str(metadata_session_id)
+
+    try:
+        relative_path = raw_csv_path.expanduser().resolve().relative_to(RAW_DATA_ROOT.resolve())
+    except ValueError:
+        return ""
+
+    if len(relative_path.parts) >= 2:
+        return relative_path.parts[0]
+    return ""
+
+
+def _build_processed_session_metadata(
+    session_id: str,
+    session_metadata: dict[str, object] | None,
+    total_laps: int,
+    alignment_metadata: dict[str, object],
+) -> dict[str, object]:
+    processed_metadata = dict(session_metadata or {})
+    processed_metadata["session_id"] = processed_metadata.get("session_id") or session_id
+    processed_metadata["total_laps"] = int(processed_metadata.get("total_laps", total_laps) or total_laps)
+    processed_metadata["processed_schema_version"] = SCHEMA_VERSION
+    processed_metadata["alignment"] = alignment_metadata
+    return processed_metadata
+
+
+def _find_duplicate_lap_numbers(staged_laps: list[dict[str, object]]) -> list[int]:
+    lap_number_counts: dict[int, int] = {}
+    for staged_lap in staged_laps:
+        lap_number = int(staged_lap["lap_number"])
+        lap_number_counts[lap_number] = lap_number_counts.get(lap_number, 0) + 1
+
+    return sorted(lap_number for lap_number, count in lap_number_counts.items() if count > 1)
+
+
+def _clear_managed_processed_artifacts(processed_dir: Path) -> None:
+    for path in processed_dir.glob("lap_*.csv"):
+        path.unlink()
+    for path in processed_dir.glob("*.validation.json"):
+        path.unlink()
+
+    for artifact_name in ("reference_path.csv", "metadata.json"):
+        artifact_path = processed_dir / artifact_name
+        if artifact_path.exists():
+            artifact_path.unlink()
+
+
+def _validate_session_processing_paths(raw_dir: Path, processed_dir: Path) -> None:
+    if _paths_equal(raw_dir, processed_dir):
+        raise ValueError("Processed session output directory must differ from the raw session directory")
 
 
 if __name__ == "__main__":

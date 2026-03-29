@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-SCHEMA_VERSION = "2026.03-phase2-lapvalidation"
+SCHEMA_VERSION = "2026.04-phase2-alignment"
 VALIDATION_THRESHOLDS_VERSION = "v1-fixed"
 
 VALIDATION_REASON_TOO_FEW_SAMPLES = "too_few_samples"
@@ -86,6 +86,10 @@ PROCESSED_LAP_COLUMNS = [
     "DistanceTraveledM",
     "CumulativeDistanceM",
     "NormalizedDistance",
+    "TrackProgressM",
+    "TrackProgressNorm",
+    "AlignmentResidualM",
+    "AlignmentUsedFallback",
     "SpeedMps",
     "SpeedKph",
     "EngineRpm",
@@ -106,6 +110,7 @@ PROCESSED_LAP_COLUMNS = [
     "IsCoasting",
     "LapTimeS",
     "LapIsValid",
+    "AlignmentIsUsable",
 ]
 
 REFERENCE_LAP_COLUMNS = [
@@ -121,6 +126,31 @@ REFERENCE_LAP_COLUMNS = [
     "Gear",
     "LongitudinalAccelMps2",
     "IsCoasting",
+]
+
+ALIGNED_LAP_COLUMNS = [
+    "TrackProgressNorm",
+    "TrackProgressM",
+    "ElapsedTimeS",
+    "SpeedMps",
+    "SpeedKph",
+    "Throttle",
+    "Brake",
+    "Steering",
+    "EngineRpm",
+    "Gear",
+    "LongitudinalAccelMps2",
+    "IsCoasting",
+]
+
+REFERENCE_PATH_COLUMNS = [
+    "ReferenceSampleIndex",
+    "ReferenceLapNumber",
+    "PositionX",
+    "PositionY",
+    "PositionZ",
+    "ReferenceDistanceM",
+    "ReferenceProgressNorm",
 ]
 
 
