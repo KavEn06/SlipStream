@@ -15,6 +15,7 @@ from src.core.schemas import (
     PROCESSED_LAP_COLUMNS,
     RAW_LAP_COLUMNS,
     VALIDATION_REASON_MISSING_REQUIRED_SIGNALS,
+    VALIDATION_REASON_MULTIPLE_LAP_NUMBERS,
     VALIDATION_REASON_NO_FORWARD_DISTANCE,
     VALIDATION_REASON_NON_MONOTONIC_TIMESTAMP,
     VALIDATION_REASON_PARTIAL_LAP_END,
@@ -229,6 +230,23 @@ class ProcessingTests(unittest.TestCase):
         finally:
             shutil.rmtree(temp_root)
 
+    def test_capture_end_completion_uses_lap_local_progress_not_session_distance(self) -> None:
+        raw_df = build_raw_lap_dataframe(distance_step_m=185.0)
+        raw_df["DistanceTraveled"] = raw_df["DistanceTraveled"] + 12000.0
+        metadata = build_session_metadata(
+            close_reason=LAP_CLOSE_REASON_CAPTURE_END,
+            last_timestamp_ms=int(raw_df["TimestampMS"].iloc[-1]),
+        )
+
+        temp_root, processed_df, validation = self._process_raw_dataframe(raw_df, metadata=metadata)
+        try:
+            self.assertTrue((processed_df["LapIsValid"] == 1).all())
+            self.assertNotIn(VALIDATION_REASON_PARTIAL_LAP_END, validation["reason_codes"])
+            self.assertLess(validation["metrics"]["end_progress_m"], 5000.0)
+            self.assertGreaterEqual(validation["metrics"]["end_completion_ratio"], 0.95)
+        finally:
+            shutil.rmtree(temp_root)
+
     def test_metadata_lookup_uses_csv_lap_number_before_filename(self) -> None:
         raw_df = build_raw_lap_dataframe(lap_number=2, distance_step_m=185.0)
         metadata = {
@@ -267,6 +285,18 @@ class ProcessingTests(unittest.TestCase):
         try:
             self.assertTrue((processed_df["LapIsValid"] == 0).all())
             self.assertIn(VALIDATION_REASON_NON_MONOTONIC_TIMESTAMP, validation["reason_codes"])
+        finally:
+            shutil.rmtree(temp_root)
+
+    def test_multiple_lap_numbers_in_one_file_are_marked_invalid(self) -> None:
+        raw_df = build_raw_lap_dataframe()
+        raw_df.loc[15:, "LapNumber"] = 2
+
+        temp_root, processed_df, validation = self._process_raw_dataframe(raw_df)
+        try:
+            self.assertTrue((processed_df["LapIsValid"] == 0).all())
+            self.assertIn(VALIDATION_REASON_MULTIPLE_LAP_NUMBERS, validation["reason_codes"])
+            self.assertEqual(validation["metrics"]["distinct_lap_numbers"], [1, 2])
         finally:
             shutil.rmtree(temp_root)
 
