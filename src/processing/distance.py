@@ -4,6 +4,8 @@ import argparse
 import json
 from pathlib import Path
 import re
+import shutil
+import tempfile
 
 import numpy as np
 import pandas as pd
@@ -299,9 +301,6 @@ def process_session(raw_session_dir: str | Path, processed_session_dir: str | Pa
         processed_dir = Path(processed_session_dir)
 
     _validate_session_processing_paths(raw_dir, processed_dir)
-    processed_dir.mkdir(parents=True, exist_ok=True)
-    _clear_managed_processed_artifacts(processed_dir)
-    written_paths: list[Path] = []
     session_metadata = _load_session_metadata(raw_dir)
     staged_laps: list[dict[str, object]] = []
 
@@ -335,29 +334,27 @@ def process_session(raw_session_dir: str | Path, processed_session_dir: str | Pa
     }
     alignment_artifacts = align_session_laps(processed_laps)
 
-    for staged_lap in staged_laps:
-        lap_number = int(staged_lap["lap_number"])
-        processed_path = Path(staged_lap["processed_path"])
-        aligned_df = alignment_artifacts.aligned_laps.get(lap_number, staged_lap["processed_df"])
-        validation_result = staged_lap["validation_result"]
-        processed_path.parent.mkdir(parents=True, exist_ok=True)
-        aligned_df[PROCESSED_LAP_COLUMNS].to_csv(processed_path, index=False)
-        write_validation_result(validation_result, processed_path)
-        written_paths.append(processed_path)
-
-    if alignment_artifacts.reference_path is not None:
-        reference_path = processed_dir / "reference_path.csv"
-        alignment_artifacts.reference_path.to_csv(reference_path, index=False)
-
     processed_metadata = _build_processed_session_metadata(
         session_id=session_id,
         session_metadata=session_metadata,
         total_laps=len(staged_laps),
         alignment_metadata=alignment_artifacts.metadata,
     )
-    (processed_dir / "metadata.json").write_text(json.dumps(processed_metadata, indent=2), encoding="utf-8")
 
-    return written_paths
+    staging_dir = _create_managed_artifact_temp_dir(processed_dir, "staging")
+    try:
+        written_paths = _write_session_artifacts(
+            target_dir=staging_dir,
+            staged_laps=staged_laps,
+            alignment_artifacts=alignment_artifacts,
+            processed_metadata=processed_metadata,
+        )
+        _commit_managed_processed_artifacts(staging_dir, processed_dir)
+    except Exception:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
+
+    return [processed_dir / path.name for path in written_paths]
 
 
 def calculate_distance(raw_csv_path: str | Path) -> pd.Series:
@@ -484,16 +481,85 @@ def _find_duplicate_lap_numbers(staged_laps: list[dict[str, object]]) -> list[in
     return sorted(lap_number for lap_number, count in lap_number_counts.items() if count > 1)
 
 
-def _clear_managed_processed_artifacts(processed_dir: Path) -> None:
-    for path in processed_dir.glob("lap_*.csv"):
-        path.unlink()
-    for path in processed_dir.glob("*.validation.json"):
-        path.unlink()
+def _write_session_artifacts(
+    target_dir: Path,
+    staged_laps: list[dict[str, object]],
+    alignment_artifacts,
+    processed_metadata: dict[str, object],
+) -> list[Path]:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    written_paths: list[Path] = []
+
+    for staged_lap in staged_laps:
+        lap_number = int(staged_lap["lap_number"])
+        processed_path = target_dir / Path(staged_lap["processed_path"]).name
+        aligned_df = alignment_artifacts.aligned_laps.get(lap_number, staged_lap["processed_df"])
+        validation_result = staged_lap["validation_result"]
+        aligned_df[PROCESSED_LAP_COLUMNS].to_csv(processed_path, index=False)
+        write_validation_result(validation_result, processed_path)
+        written_paths.append(processed_path)
+
+    if alignment_artifacts.reference_path is not None:
+        reference_path = target_dir / "reference_path.csv"
+        alignment_artifacts.reference_path.to_csv(reference_path, index=False)
+
+    (target_dir / "metadata.json").write_text(json.dumps(processed_metadata, indent=2), encoding="utf-8")
+    return written_paths
+
+
+def _managed_processed_artifact_paths(directory: Path) -> list[Path]:
+    if not directory.exists():
+        return []
+
+    managed_paths = [path for path in directory.glob("lap_*.csv") if path.is_file()]
+    managed_paths.extend(path for path in directory.glob("*.validation.json") if path.is_file())
 
     for artifact_name in ("reference_path.csv", "metadata.json"):
-        artifact_path = processed_dir / artifact_name
-        if artifact_path.exists():
-            artifact_path.unlink()
+        artifact_path = directory / artifact_name
+        if artifact_path.is_file():
+            managed_paths.append(artifact_path)
+
+    return sorted(managed_paths, key=lambda path: path.name)
+
+
+def _create_managed_artifact_temp_dir(processed_dir: Path, purpose: str) -> Path:
+    processed_dir.parent.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=f".{processed_dir.name}.{purpose}-", dir=processed_dir.parent))
+
+
+def _commit_managed_processed_artifacts(staging_dir: Path, processed_dir: Path) -> None:
+    processed_dir.parent.mkdir(parents=True, exist_ok=True)
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    backup_dir = _create_managed_artifact_temp_dir(processed_dir, "backup")
+    existing_artifacts = _managed_processed_artifact_paths(processed_dir)
+    staged_artifacts = _managed_processed_artifact_paths(staging_dir)
+    moved_to_backup: list[str] = []
+    committed_artifacts: list[str] = []
+
+    try:
+        for existing_path in existing_artifacts:
+            backup_path = backup_dir / existing_path.name
+            existing_path.replace(backup_path)
+            moved_to_backup.append(existing_path.name)
+
+        for staged_path in staged_artifacts:
+            committed_path = processed_dir / staged_path.name
+            staged_path.replace(committed_path)
+            committed_artifacts.append(staged_path.name)
+    except Exception:
+        for artifact_name in committed_artifacts:
+            committed_path = processed_dir / artifact_name
+            if committed_path.exists():
+                committed_path.unlink()
+
+        for artifact_name in moved_to_backup:
+            backup_path = backup_dir / artifact_name
+            if backup_path.exists():
+                backup_path.replace(processed_dir / artifact_name)
+        raise
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 def _validate_session_processing_paths(raw_dir: Path, processed_dir: Path) -> None:

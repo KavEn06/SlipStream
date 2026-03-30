@@ -953,7 +953,60 @@ class ProcessingTests(unittest.TestCase):
         finally:
             shutil.rmtree(temp_root)
 
-    def test_process_session_clears_stale_processed_artifacts_before_duplicate_guard_failure(self) -> None:
+    def test_process_session_preserves_last_known_good_artifacts_on_malformed_rerun_csv(self) -> None:
+        good_df = build_raw_lap_dataframe(path_points=build_parallel_section_path_points(), lap_number=1)
+        temp_root = Path(tempfile.mkdtemp())
+        raw_session_dir = temp_root / "raw" / "session_fixture"
+        processed_session_dir = temp_root / "processed" / "session_fixture"
+        raw_session_dir.mkdir(parents=True, exist_ok=True)
+        good_df.to_csv(raw_session_dir / "lap_001.csv", index=False)
+        metadata = build_session_metadata(
+            close_reason=LAP_CLOSE_REASON_LAP_ROLLOVER,
+            last_timestamp_ms=int(good_df["TimestampMS"].iloc[-1]),
+        )
+        (raw_session_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+        try:
+            process_session(raw_session_dir, processed_session_dir)
+            original_artifacts = self._snapshot_managed_processed_artifacts(processed_session_dir)
+
+            (raw_session_dir / "lap_001.csv").write_text('TimestampMS,"broken\n1,2\n', encoding="utf-8")
+            with self.assertRaises(Exception):
+                process_session(raw_session_dir, processed_session_dir)
+
+            self.assertEqual(original_artifacts, self._snapshot_managed_processed_artifacts(processed_session_dir))
+        finally:
+            shutil.rmtree(temp_root)
+
+    def test_process_session_preserves_last_known_good_artifacts_on_schema_failure_after_read(self) -> None:
+        good_df = build_raw_lap_dataframe(path_points=build_parallel_section_path_points(), lap_number=1)
+        temp_root = Path(tempfile.mkdtemp())
+        raw_session_dir = temp_root / "raw" / "session_fixture"
+        processed_session_dir = temp_root / "processed" / "session_fixture"
+        raw_session_dir.mkdir(parents=True, exist_ok=True)
+        good_df.to_csv(raw_session_dir / "lap_001.csv", index=False)
+        metadata = build_session_metadata(
+            close_reason=LAP_CLOSE_REASON_LAP_ROLLOVER,
+            last_timestamp_ms=int(good_df["TimestampMS"].iloc[-1]),
+        )
+        (raw_session_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+        try:
+            process_session(raw_session_dir, processed_session_dir)
+            original_artifacts = self._snapshot_managed_processed_artifacts(processed_session_dir)
+
+            pd.DataFrame({"TimestampMS": [1000, 1050], "LapNumber": [1, 1]}).to_csv(
+                raw_session_dir / "lap_001.csv",
+                index=False,
+            )
+            with self.assertRaisesRegex(ValueError, "missing required columns"):
+                process_session(raw_session_dir, processed_session_dir)
+
+            self.assertEqual(original_artifacts, self._snapshot_managed_processed_artifacts(processed_session_dir))
+        finally:
+            shutil.rmtree(temp_root)
+
+    def test_process_session_preserves_last_known_good_artifacts_on_duplicate_guard_failure(self) -> None:
         first_df = build_raw_lap_dataframe(lap_number=1, timestamp_step_ms=40)
         second_df = build_raw_lap_dataframe(
             path_points=offset_path_points(build_parallel_section_path_points(), dy=0.5, start_index=40, end_index=80),
@@ -982,17 +1035,29 @@ class ProcessingTests(unittest.TestCase):
 
         try:
             process_session(raw_session_dir, processed_session_dir)
-            self.assertTrue((processed_session_dir / "metadata.json").exists())
-            self.assertTrue((processed_session_dir / "reference_path.csv").exists())
+            original_artifacts = self._snapshot_managed_processed_artifacts(processed_session_dir)
 
             duplicate_df.to_csv(raw_session_dir / "lap_002.csv", index=False)
             with self.assertRaisesRegex(ValueError, "Duplicate logical lap numbers"):
                 process_session(raw_session_dir, processed_session_dir)
 
-            self.assertFalse((processed_session_dir / "metadata.json").exists())
-            self.assertFalse((processed_session_dir / "reference_path.csv").exists())
-            self.assertEqual(list(processed_session_dir.glob("lap_*.csv")), [])
-            self.assertEqual(list(processed_session_dir.glob("*.validation.json")), [])
+            self.assertEqual(original_artifacts, self._snapshot_managed_processed_artifacts(processed_session_dir))
+        finally:
+            shutil.rmtree(temp_root)
+
+    def test_process_session_first_run_failure_leaves_no_partial_managed_artifacts(self) -> None:
+        temp_root = Path(tempfile.mkdtemp())
+        raw_session_dir = temp_root / "raw" / "session_fixture"
+        processed_session_dir = temp_root / "processed" / "session_fixture"
+        raw_session_dir.mkdir(parents=True, exist_ok=True)
+        (raw_session_dir / "lap_001.csv").write_text('TimestampMS,"broken\n1,2\n', encoding="utf-8")
+
+        try:
+            with self.assertRaises(Exception):
+                process_session(raw_session_dir, processed_session_dir)
+
+            self.assertFalse(processed_session_dir.exists())
+            self.assertEqual(self._snapshot_managed_processed_artifacts(processed_session_dir), {})
         finally:
             shutil.rmtree(temp_root)
 
@@ -1055,6 +1120,19 @@ class ProcessingTests(unittest.TestCase):
         )
         validation = json.loads((processed_session_dir / f"{Path(raw_filename).stem}.validation.json").read_text(encoding="utf-8"))
         return temp_root, processed_df, validation
+
+    def _snapshot_managed_processed_artifacts(self, processed_dir: Path) -> dict[str, bytes]:
+        if not processed_dir.exists():
+            return {}
+
+        managed_paths = [path for path in processed_dir.glob("lap_*.csv") if path.is_file()]
+        managed_paths.extend(path for path in processed_dir.glob("*.validation.json") if path.is_file())
+        for artifact_name in ("reference_path.csv", "metadata.json"):
+            artifact_path = processed_dir / artifact_name
+            if artifact_path.is_file():
+                managed_paths.append(artifact_path)
+
+        return {path.name: path.read_bytes() for path in sorted(managed_paths, key=lambda path: path.name)}
 
 
 if __name__ == "__main__":
