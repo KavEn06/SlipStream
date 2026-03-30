@@ -12,6 +12,72 @@ function formatTime(seconds: number | null): string {
   return mins > 0 ? `${mins}:${secs.padStart(6, "0")}` : `${secs}s`;
 }
 
+function SplitDeleteButton({
+  confirming,
+  busy,
+  idleLabel,
+  busyLabel,
+  onStart,
+  onConfirm,
+  onCancel,
+  compact = false,
+}: {
+  confirming: boolean;
+  busy: boolean;
+  idleLabel: string;
+  busyLabel: string;
+  onStart: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  compact?: boolean;
+}) {
+  const idleWidthClass = compact ? "w-[4.75rem]" : "w-[8.5rem]";
+  const confirmWidthClass = compact ? "w-[8.75rem]" : "w-[13.75rem]";
+  const textClass = compact ? "text-xs" : "text-sm";
+  const paddingClass = compact ? "px-3 py-1.5" : "px-3.5 py-2";
+  const deleteToneClass =
+    "border-[#ff4d57]/28 bg-[#ff4d57]/10 text-[#ff4d57] hover:bg-[#ff4d57]/18";
+  const confirmToneClass =
+    "border-r border-[#ff4d57]/18 bg-[#ff4d57]/14 text-[#ff4d57] hover:bg-[#ff4d57]/22";
+
+  return (
+    <div
+      className={`inline-grid overflow-hidden rounded-full border border-[#ff4d57]/24 bg-surface-1/82 transition-all duration-200 ease-out ${
+        confirming ? `grid-cols-2 ${confirmWidthClass}` : `grid-cols-1 ${idleWidthClass}`
+      }`}
+    >
+      {confirming ? (
+        <>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className={`motion-safe-color ${paddingClass} ${textClass} ${confirmToneClass} font-medium disabled:opacity-50 cursor-pointer`}
+          >
+            {busy ? busyLabel : "Confirm"}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className={`motion-safe-color ${paddingClass} ${textClass} bg-surface-1/84 font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary disabled:opacity-50 cursor-pointer`}
+          >
+            Cancel
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={onStart}
+          className={`motion-safe-color ${paddingClass} ${textClass} ${deleteToneClass} font-medium cursor-pointer`}
+        >
+          {idleLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function SessionDetailPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
@@ -19,7 +85,11 @@ export function SessionDetailPage() {
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [processing, setProcessing] = useState(false);
   const [deletingSession, setDeletingSession] = useState(false);
+  const [confirmingSessionDelete, setConfirmingSessionDelete] = useState(false);
   const [deletingLapNumber, setDeletingLapNumber] = useState<number | null>(null);
+  const [confirmingLapDelete, setConfirmingLapDelete] = useState<number | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const load = () => {
@@ -58,10 +128,6 @@ export function SessionDetailPage() {
 
   const handleDeleteSession = async () => {
     if (!sessionId) return;
-    const confirmed = window.confirm(
-      `Delete session "${sessionId}" and all associated files?`,
-    );
-    if (!confirmed) return;
 
     setDeletingSession(true);
     try {
@@ -75,16 +141,13 @@ export function SessionDetailPage() {
 
   const handleDeleteLap = async (lapNumber: number) => {
     if (!sessionId) return;
-    const confirmed = window.confirm(
-      `Delete lap ${lapNumber} from session "${sessionId}"?`,
-    );
-    if (!confirmed) return;
 
     setDeletingLapNumber(lapNumber);
     try {
       await api.deleteLap(sessionId, lapNumber);
       const detail = await api.getSession(sessionId);
       setSession(detail);
+      setConfirmingLapDelete(null);
     } catch (err) {
       if (err instanceof Error && err.message === "Session not found") {
         navigate("/sessions");
@@ -157,13 +220,15 @@ export function SessionDetailPage() {
             )}
           </>
         )}
-        <button
-          onClick={handleDeleteSession}
-          disabled={deletingSession}
-          className="rounded-full bg-danger/10 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/16 disabled:opacity-50 cursor-pointer"
-        >
-          {deletingSession ? "Deleting..." : "Delete Session"}
-        </button>
+        <SplitDeleteButton
+          confirming={confirmingSessionDelete}
+          busy={deletingSession}
+          idleLabel="Delete Session"
+          busyLabel="Deleting..."
+          onStart={() => setConfirmingSessionDelete(true)}
+          onConfirm={handleDeleteSession}
+          onCancel={() => setConfirmingSessionDelete(false)}
+        />
       </div>
 
       <div className="overflow-hidden rounded-3xl border border-border/70 bg-surface-1/85">
@@ -220,16 +285,16 @@ export function SessionDetailPage() {
                     >
                       Review
                     </Link>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteLap(lap.lap_number)}
-                      disabled={deletingLapNumber === lap.lap_number}
-                      className="text-danger text-xs font-medium hover:underline disabled:no-underline disabled:opacity-50 cursor-pointer"
-                    >
-                      {deletingLapNumber === lap.lap_number
-                        ? "Deleting..."
-                        : "Delete"}
-                    </button>
+                    <SplitDeleteButton
+                      confirming={confirmingLapDelete === lap.lap_number}
+                      busy={deletingLapNumber === lap.lap_number}
+                      idleLabel="Delete"
+                      busyLabel="..."
+                      onStart={() => setConfirmingLapDelete(lap.lap_number)}
+                      onConfirm={() => handleDeleteLap(lap.lap_number)}
+                      onCancel={() => setConfirmingLapDelete(null)}
+                      compact
+                    />
                   </div>
                 </td>
               </tr>

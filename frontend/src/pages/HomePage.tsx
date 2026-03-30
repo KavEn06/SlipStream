@@ -23,7 +23,7 @@ function StatCard({
   value: string;
 }) {
   return (
-    <div className="rounded-3xl border border-border/70 bg-surface-1/85 p-5">
+    <div className="density-home-card rounded-3xl border border-border/70 bg-surface-1/85 p-5">
       <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
         {label}
       </p>
@@ -40,7 +40,7 @@ function DetailRow({
   value: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-border/60 py-3 last:border-b-0">
+    <div className="density-home-detail-row flex items-center justify-between gap-3 border-b border-border/60 py-3 last:border-b-0">
       <span className="text-xs uppercase tracking-[0.14em] text-text-muted">
         {label}
       </span>
@@ -180,31 +180,19 @@ export function HomePage() {
   };
 
   return (
-    <div className="max-w-7xl space-y-6">
-      <section className="space-y-4">
+    <div className="density-home-stack max-w-7xl space-y-6">
+      <section className="density-home-cluster space-y-4">
         <div className="overflow-hidden rounded-[30px] border border-border/70 bg-surface-1/85">
           <div className="grid gap-0 xl:grid-cols-[minmax(0,1.8fr)_300px]">
-            <div className="relative overflow-hidden px-6 py-6 lg:px-8 lg:py-8">
+            <div className="density-home-hero relative overflow-hidden px-6 py-6 lg:px-8 lg:py-8">
               <div className="hero-overlay pointer-events-none absolute inset-0" />
               <div className="hero-band pointer-events-none absolute -left-16 top-8 h-24 w-56 rotate-[-16deg]" />
 
               <div className="relative">
                 <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="inline-flex items-center border border-border/70 bg-surface-0/55 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-text-secondary [clip-path:polygon(0_0,100%_0,92%_100%,0_100%)]">
-                      SlipStream // Review Station
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`h-2.5 w-2.5 rounded-full ${
-                          isActive ? "bg-success animate-pulse" : "bg-text-muted"
-                        }`}
-                      />
-                      <span className="text-[10px] uppercase tracking-[0.22em] text-text-muted">
-                        {isActive ? "Capture Live" : "Standby"}
-                      </span>
-                    </div>
-                  </div>
+                  <span className="inline-flex items-center border border-border/70 bg-surface-0/55 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-text-secondary [clip-path:polygon(0_0,100%_0,92%_100%,0_100%)]">
+                    SlipStream
+                  </span>
                 </div>
 
                 <div className="mt-10">
@@ -216,7 +204,7 @@ export function HomePage() {
                   </h2>
                 </div>
 
-                <div className="mt-8 grid gap-4 rounded-[24px] border border-border/70 bg-surface-2/78 p-5 md:grid-cols-[minmax(0,1.4fr)_140px_auto]">
+                <div className="density-home-card mt-8 grid gap-4 rounded-[24px] border border-border/70 bg-surface-2/78 p-5 md:grid-cols-[minmax(0,1.4fr)_140px_auto]">
                   <div className="min-w-0">
                     <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">
                       Current Session
@@ -283,7 +271,7 @@ export function HomePage() {
                     }`}
                   >
                     <div className="overflow-hidden">
-                      <div className="grid gap-4 rounded-2xl border border-border/70 bg-surface-2/78 p-4 md:grid-cols-[auto_auto_1fr]">
+                      <div className="density-home-card grid gap-4 rounded-2xl border border-border/70 bg-surface-2/78 p-4 md:grid-cols-[auto_auto_1fr]">
                         <div>
                           <label className="mb-1 block text-xs text-text-muted">
                             IP Address
@@ -327,41 +315,27 @@ export function HomePage() {
               </div>
             </div>
 
-            <aside className="side-panel-surface border-t border-border/60 px-6 py-6 lg:px-7 xl:border-l xl:border-t-0">
+            <aside className="density-home-section side-panel-surface border-t border-border/60 px-6 py-6 lg:px-7 xl:border-l xl:border-t-0">
               <p className="text-[10px] uppercase tracking-[0.24em] text-text-muted">
                 Vehicle Context
               </p>
               <h3 className="mt-4 text-2xl font-semibold tracking-tight text-text-primary">
                 {carNameLabel}
               </h3>
-              <p className="mt-2 text-sm text-text-muted">
-                {activeCarOrdinal !== null && activeCarOrdinal !== undefined
-                  ? `Ordinal ${activeCarOrdinal}`
-                  : "No vehicle data"}
-              </p>
 
-              <div className="mt-6 space-y-3">
+              <div className="mt-5 space-y-3">
                 <DetailRow label="Layout" value={activeLayout} />
                 <DetailRow label="Location" value={activeLocation} />
-                <DetailRow
-                  label="Status"
-                  value={isActive ? "Capture Live" : "Standby"}
-                />
               </div>
             </aside>
           </div>
         </div>
 
-        <section className="rounded-[28px] border border-border/70 bg-surface-1/85 p-5">
+        <section className="density-home-section rounded-[28px] border border-border/70 bg-surface-1/85 p-5">
           <div className="flex items-end justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
-                Recent Sessions
-              </p>
-              <h3 className="mt-2 text-xl font-semibold tracking-tight">
-                Latest Sessions
-              </h3>
-            </div>
+            <h3 className="text-xl font-semibold tracking-tight">
+              Latest Sessions
+            </h3>
             <Link
               to="/sessions"
               className="text-sm text-text-secondary transition-colors hover:text-text-primary"
@@ -386,7 +360,7 @@ export function HomePage() {
                 <Link
                   key={session.session_id}
                   to={`/sessions/${session.session_id}`}
-                  className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-surface-2/72 px-4 py-4 transition-colors hover:bg-surface-3/82 last:border-b-0"
+                  className="density-home-list-row flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-surface-2/72 px-4 py-4 transition-colors hover:bg-surface-3/82 last:border-b-0"
                 >
                   <div className="min-w-0">
                     <p className="font-mono text-sm font-medium text-text-primary">
@@ -412,7 +386,7 @@ export function HomePage() {
         </section>
       </section>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="density-home-grid grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Total Sessions"
           value={String(kpis.totalSessions)}
@@ -431,22 +405,17 @@ export function HomePage() {
         />
       </div>
 
-      <section className="rounded-[28px] border border-border/70 bg-surface-1/85 p-5">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
-            Track Breakdown
-          </p>
-          <h3 className="mt-2 text-xl font-semibold tracking-tight">
-            Most-used tracks
-          </h3>
-        </div>
+      <section className="density-home-section rounded-[28px] border border-border/70 bg-surface-1/85 p-5">
+        <h3 className="text-xl font-semibold tracking-tight">
+          Tracks
+        </h3>
 
         {trackBreakdown.length === 0 ? (
           <div className="mt-5 rounded-3xl border border-dashed border-border/70 bg-surface-2/72 p-8 text-center text-sm text-text-secondary">
             No tracks
           </div>
         ) : (
-          <div className="mt-5 space-y-4">
+          <div className="density-home-cluster mt-5 space-y-4">
             {trackBreakdown.map((track, index) => (
               <div key={track.name} className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
@@ -476,15 +445,14 @@ export function HomePage() {
 
       <section className="overflow-hidden rounded-[28px] border border-border/70 bg-surface-1/85">
         <div className="grid gap-0 lg:grid-cols-[minmax(0,1.3fr)_360px]">
-          <div className="relative overflow-hidden px-5 py-6 lg:px-6">
+          <div className="density-home-hero relative overflow-hidden px-5 py-6 lg:px-6">
             <div className="hero-overlay pointer-events-none absolute inset-0 opacity-80" />
             <div className="relative">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
-                Favourite Car
-              </p>
-
               {favoriteCar ? (
                 <>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
+                    Favourite Car
+                  </p>
                   <h3 className="mt-3 text-3xl font-semibold tracking-tight text-text-primary lg:text-[2.5rem]">
                     {getSessionCarLabel(favoriteCar.carOrdinal)}
                   </h3>
@@ -492,8 +460,8 @@ export function HomePage() {
                     {favoriteCar.topTrack}
                   </p>
 
-                  <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-2xl border border-border/70 bg-surface-2/76 p-4">
+                  <div className="density-home-grid mt-6 grid gap-3 sm:grid-cols-3">
+                    <div className="density-home-card rounded-2xl border border-border/70 bg-surface-2/76 p-4">
                       <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
                         Sessions
                       </p>
@@ -501,7 +469,7 @@ export function HomePage() {
                         {favoriteCar.sessions}
                       </p>
                     </div>
-                    <div className="rounded-2xl border border-border/70 bg-surface-2/76 p-4">
+                    <div className="density-home-card rounded-2xl border border-border/70 bg-surface-2/76 p-4">
                       <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
                         Laps
                       </p>
@@ -509,7 +477,7 @@ export function HomePage() {
                         {favoriteCar.laps}
                       </p>
                     </div>
-                    <div className="rounded-2xl border border-border/70 bg-surface-2/76 p-4">
+                    <div className="density-home-card rounded-2xl border border-border/70 bg-surface-2/76 p-4">
                       <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
                         Processed
                       </p>
@@ -527,13 +495,9 @@ export function HomePage() {
             </div>
           </div>
 
-          <aside className="side-panel-surface border-t border-border/60 px-5 py-6 lg:border-l lg:border-t-0 lg:px-6">
-            <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">
-              Garage Focus
-            </p>
-
+          <aside className="density-home-section side-panel-surface border-t border-border/60 px-5 py-6 lg:border-l lg:border-t-0 lg:px-6">
             {favoriteCar ? (
-              <div className="mt-5 space-y-3">
+              <div className="space-y-3">
                 <DetailRow
                   label="Vehicle"
                   value={getSessionCarLabel(favoriteCar.carOrdinal) ?? "--"}
@@ -545,8 +509,8 @@ export function HomePage() {
                 />
               </div>
             ) : (
-              <div className="mt-5 rounded-2xl border border-dashed border-border/70 bg-surface-2/72 p-5 text-sm text-text-secondary">
-                Capture and review more sessions to build vehicle trends.
+              <div className="rounded-2xl border border-dashed border-border/70 bg-surface-2/72 p-5 text-sm text-text-secondary">
+                No vehicle data
               </div>
             )}
           </aside>

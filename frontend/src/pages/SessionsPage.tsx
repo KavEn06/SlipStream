@@ -20,7 +20,7 @@ function LibraryStat({
   value: string;
 }) {
   return (
-    <div className="min-w-[104px] rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3">
+    <div className="density-library-stat min-w-[104px] rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3">
       <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
         {label}
       </p>
@@ -181,7 +181,7 @@ export function SessionsPage() {
   return (
     <div className="max-w-7xl space-y-5">
       <section className="overflow-hidden rounded-[30px] border border-border/70 bg-surface-1/85">
-        <div className="relative px-6 py-6 lg:px-8 lg:py-7">
+        <div className="density-library-hero relative px-6 py-6 lg:px-8 lg:py-7">
           <div className="hero-overlay pointer-events-none absolute inset-0" />
           <div className="hero-band pointer-events-none absolute -left-16 top-8 h-24 w-56 rotate-[-16deg]" />
 
@@ -217,7 +217,7 @@ export function SessionsPage() {
         </div>
       </section>
 
-      <section className="rounded-[28px] border border-border/70 bg-surface-1/85 p-4 sm:p-5">
+      <section className="density-library-panel rounded-[28px] border border-border/70 bg-surface-1/85 p-4 sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-3">
@@ -261,7 +261,7 @@ export function SessionsPage() {
               onClick={() => setShowCaptureSettings((current) => !current)}
               aria-expanded={showCaptureSettings}
               aria-controls={captureSettingsId}
-              className="inline-flex items-center gap-2 border border-border/70 bg-surface-2/84 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.16em] text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer"
+              className="density-library-control inline-flex items-center gap-2 border border-border/70 bg-surface-2/84 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.16em] text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer"
             >
               <span>Capture Settings</span>
               <svg
@@ -283,7 +283,7 @@ export function SessionsPage() {
               type="button"
               onClick={handleCaptureAction}
               disabled={capture.busy}
-              className={`inline-flex items-center border px-4 py-2 text-[11px] font-medium uppercase tracking-[0.18em] transition-colors cursor-pointer disabled:opacity-50 [clip-path:polygon(0_0,100%_0,92%_100%,0_100%)] ${
+              className={`density-library-control inline-flex items-center border px-4 py-2 text-[11px] font-medium uppercase tracking-[0.18em] transition-colors cursor-pointer disabled:opacity-50 [clip-path:polygon(0_0,100%_0,92%_100%,0_100%)] ${
                 isCaptureActive
                   ? "border-danger/30 bg-danger/10 text-danger hover:bg-danger/18"
                   : "border-accent/30 bg-accent/12 text-accent hover:bg-accent/18"
@@ -346,7 +346,7 @@ export function SessionsPage() {
         )}
       </section>
 
-      <section className="rounded-[28px] border border-border/70 bg-surface-1/85 p-4 sm:p-5">
+      <section className="density-library-panel rounded-[28px] border border-border/70 bg-surface-1/85 p-4 sm:p-5">
         <div className="grid gap-3 xl:grid-cols-[minmax(0,1.6fr)_170px_170px_170px]">
           <label className="block">
             <span className="sr-only">Search sessions</span>
@@ -355,7 +355,7 @@ export function SessionsPage() {
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search session, track, layout, location"
-              className="w-full rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 text-sm text-text-secondary placeholder:text-text-muted focus:border-accent focus:outline-none"
+              className="density-library-control w-full rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 text-sm text-text-secondary placeholder:text-text-muted focus:border-accent focus:outline-none"
             />
           </label>
 
@@ -365,7 +365,7 @@ export function SessionsPage() {
               <select
                 value={statusFilter}
                 onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-                className="w-full appearance-none rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
+                className="density-library-control w-full appearance-none rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
               >
                 <option value="all">All Statuses</option>
                 <option value="processed">Processed</option>
@@ -393,7 +393,7 @@ export function SessionsPage() {
               <select
                 value={dateFilter}
                 onChange={(event) => setDateFilter(event.target.value)}
-                className="w-full appearance-none rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
+                className="density-library-control w-full appearance-none rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
               >
                 <option value="">All Dates</option>
                 {dateOptions.map((option) => (
@@ -426,7 +426,7 @@ export function SessionsPage() {
                 onChange={(event) =>
                   setSortBy(event.target.value as SessionLibrarySort)
                 }
-                className="w-full appearance-none rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
+                className="density-library-control w-full appearance-none rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
               >
                 <option value="newest">Newest First</option>
                 <option value="oldest">Oldest First</option>
@@ -467,7 +467,7 @@ export function SessionsPage() {
             <button
               type="button"
               onClick={clearControls}
-              className="inline-flex items-center rounded-full border border-border/70 bg-surface-2/84 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer"
+              className="density-library-control inline-flex items-center rounded-full border border-border/70 bg-surface-2/84 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer"
             >
               Clear
             </button>
@@ -482,23 +482,23 @@ export function SessionsPage() {
       )}
 
       {loading ? (
-        <div className="rounded-[28px] border border-border/70 bg-surface-1/85 px-5 py-8 text-sm text-text-muted">
+        <div className="density-library-panel rounded-[28px] border border-border/70 bg-surface-1/85 px-5 py-8 text-sm text-text-muted">
           Loading sessions...
         </div>
       ) : sessions.length === 0 ? (
-        <div className="rounded-[28px] border border-dashed border-border/70 bg-surface-1/85 px-5 py-10 text-center">
+        <div className="density-library-panel rounded-[28px] border border-dashed border-border/70 bg-surface-1/85 px-5 py-10 text-center">
           <p className="text-sm font-medium text-text-secondary">
             No sessions in library.
           </p>
           <p className="mt-2 text-sm text-text-muted">Start capture to populate.</p>
         </div>
       ) : filteredSessions.length === 0 ? (
-        <div className="rounded-[28px] border border-dashed border-border/70 bg-surface-1/85 px-5 py-10 text-center">
+        <div className="density-library-panel rounded-[28px] border border-dashed border-border/70 bg-surface-1/85 px-5 py-10 text-center">
           <p className="text-sm font-medium text-text-secondary">No matches.</p>
           <button
             type="button"
             onClick={clearControls}
-            className="mt-3 inline-flex items-center rounded-full border border-accent/20 bg-accent/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:bg-accent/16 hover:text-text-primary cursor-pointer"
+            className="density-library-control mt-3 inline-flex items-center rounded-full border border-accent/20 bg-accent/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:bg-accent/16 hover:text-text-primary cursor-pointer"
           >
             Clear Filters
           </button>

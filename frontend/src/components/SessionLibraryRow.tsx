@@ -32,7 +32,7 @@ export function SessionLibraryRow({
 
   return (
     <div
-      className={`group flex flex-col gap-4 border-b border-border/60 px-4 py-4 transition-colors last:border-b-0 sm:px-5 lg:flex-row lg:items-center lg:gap-6 ${
+      className={`density-library-row group flex flex-col gap-4 border-b border-border/60 px-4 py-4 transition-colors last:border-b-0 sm:px-5 lg:flex-row lg:items-center lg:gap-6 ${
         isLive
           ? "bg-accent/[0.08] ring-1 ring-inset ring-accent/16"
           : "bg-surface-2/75 hover:bg-surface-3/85"
@@ -56,7 +56,7 @@ export function SessionLibraryRow({
         </p>
 
         {(showLayout || session.track_location) && (
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
+          <div className="density-library-row-meta mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
             {showLayout && <span>{session.track_layout}</span>}
             {session.track_location && <span>{session.track_location}</span>}
           </div>
@@ -78,7 +78,7 @@ export function SessionLibraryRow({
               onClick={() => onProcess(session.session_id)}
               disabled={processDisabled}
               title={processDisabledReason ?? undefined}
-              className="inline-flex items-center rounded-full border border-accent/20 bg-accent/10 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:bg-accent/16 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+              className="density-library-inline-action inline-flex items-center rounded-full border border-accent/20 bg-accent/10 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:bg-accent/16 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
             >
               {isProcessing ? "Working" : "Process"}
             </button>
@@ -92,7 +92,7 @@ export function SessionLibraryRow({
 
         <Link
           to={sessionPath}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-surface-1/82 text-text-secondary transition-colors hover:border-accent/20 hover:bg-accent/10 hover:text-text-primary"
+          className="density-library-icon-action inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-surface-1/82 text-text-secondary transition-colors hover:border-accent/20 hover:bg-accent/10 hover:text-text-primary"
           aria-label={`Open ${session.session_id}`}
         >
           <svg

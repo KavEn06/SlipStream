@@ -54,25 +54,13 @@ function SessionsIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={1.8}
-        d="M7.5 3.75h6.879a1.5 1.5 0 0 1 1.06.44l2.371 2.37a1.5 1.5 0 0 1 .44 1.061V18.75A1.5 1.5 0 0 1 16.75 20.25h-9.25A1.5 1.5 0 0 1 6 18.75V5.25a1.5 1.5 0 0 1 1.5-1.5Z"
+        d="M3.75 7.5A1.5 1.5 0 0 1 5.25 6h4.19c.398 0 .78.158 1.061.439l1.06 1.061H18.75a1.5 1.5 0 0 1 1.5 1.5v7.5a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-9Z"
       />
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth={1.8}
-        d="M14.25 3.75v3.375c0 .414.336.75.75.75h3.375"
-      />
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.8}
-        d="M8.625 11.25h6.75"
-      />
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.8}
-        d="M8.625 15h6.75"
+        d="M3.75 10.5h16.5"
       />
     </svg>
   );
@@ -82,21 +70,14 @@ function AppearanceIcon() {
   return (
     <svg
       className="h-4 w-4"
-      fill="none"
+      fill="currentColor"
       viewBox="0 0 24 24"
-      stroke="currentColor"
+      aria-hidden="true"
     >
       <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.8}
-        d="M10.5 3.75h3l.65 2.164a1.5 1.5 0 0 0 1.03 1.002l2.18.631.75 2.598-1.612 1.59a1.5 1.5 0 0 0-.39 1.387l.42 2.216-2.25 1.53-1.92-1.173a1.5 1.5 0 0 0-1.56 0l-1.92 1.173-2.25-1.53.42-2.216a1.5 1.5 0 0 0-.39-1.386l-1.612-1.591.75-2.598 2.18-.631a1.5 1.5 0 0 0 1.03-1.002L10.5 3.75Z"
-      />
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.8}
-        d="M9.75 12a2.25 2.25 0 1 0 4.5 0 2.25 2.25 0 0 0-4.5 0Z"
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M9.596 2.553A1 1 0 0 1 10.585 2h2.83a1 1 0 0 1 .989.553l.673 1.366a1 1 0 0 0 .58.49l1.478.43a1 1 0 0 1 .699.902l.102 1.52a1 1 0 0 0 .352.677l1.18.964a1 1 0 0 1 .274 1.13l-.875 2.691a1 1 0 0 0 0 .618l.875 2.691a1 1 0 0 1-.274 1.13l-1.18.964a1 1 0 0 0-.352.678l-.102 1.518a1 1 0 0 1-.699.903l-1.478.43a1 1 0 0 0-.58.49l-.673 1.366a1 1 0 0 1-.99.553h-2.829a1 1 0 0 1-.99-.553l-.672-1.365a1 1 0 0 0-.58-.491l-1.479-.43a1 1 0 0 1-.698-.903l-.103-1.518a1 1 0 0 0-.351-.678l-1.18-.964a1 1 0 0 1-.274-1.13l.875-2.69a1 1 0 0 0 0-.619l-.875-2.69a1 1 0 0 1 .274-1.13l1.18-.964a1 1 0 0 0 .351-.678l.103-1.519a1 1 0 0 1 .698-.902l1.478-.43a1 1 0 0 0 .58-.49l.673-1.366ZM12 8.25a3.75 3.75 0 1 0 0 7.5a3.75 3.75 0 0 0 0-7.5Z"
       />
     </svg>
   );
@@ -113,11 +94,11 @@ function getItemIcon(path: string) {
 export function SlimNavRail({
   pathname,
   appearanceOpen,
-  onOpenAppearance,
+  onToggleAppearance,
 }: {
   pathname: string;
   appearanceOpen: boolean;
-  onOpenAppearance: () => void;
+  onToggleAppearance: () => void;
 }) {
   const capture = useCaptureController();
   const isActive = capture.status?.is_active ?? false;
@@ -126,7 +107,7 @@ export function SlimNavRail({
     : "Standby";
 
   return (
-    <aside className="sticky top-0 h-screen shrink-0 self-start border-r border-border/70 bg-surface-1/80 backdrop-blur-xl">
+    <aside className="sticky top-0 z-[60] h-screen shrink-0 self-start border-r border-border/70 bg-surface-1/80 backdrop-blur-xl">
       <div className="flex h-full w-20 flex-col items-center px-3 py-5">
         <Link
           to="/"
@@ -162,7 +143,7 @@ export function SlimNavRail({
         <div className="mt-auto flex flex-col items-center gap-3 pb-1">
           <button
             type="button"
-            onClick={onOpenAppearance}
+            onClick={onToggleAppearance}
             aria-label="Appearance"
             aria-pressed={appearanceOpen}
             title="Appearance"

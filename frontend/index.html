@@ -6,12 +6,52 @@
     <title>SlipStream</title>
     <script>
       (() => {
+        const defaults = {
+          theme: "dark",
+          accent: "red",
+          density: "comfortable",
+          motion: "standard",
+        };
+
+        const normalize = (value) => ({
+          theme: value && (value.theme === "light" || value.theme === "dark")
+            ? value.theme
+            : defaults.theme,
+          accent: value && (value.accent === "red" || value.accent === "blue" || value.accent === "green" || value.accent === "gold" || value.accent === "purple" || value.accent === "pink")
+            ? value.accent
+            : defaults.accent,
+          density: value && (value.density === "compact" || value.density === "comfortable")
+            ? value.density
+            : defaults.density,
+          motion: value && (value.motion === "reduced" || value.motion === "standard")
+            ? value.motion
+            : defaults.motion,
+        });
+
+        const apply = (appearance) => {
+          document.documentElement.dataset.theme = appearance.theme;
+          document.documentElement.dataset.accent = appearance.accent;
+          document.documentElement.dataset.density = appearance.density;
+          document.documentElement.dataset.motion = appearance.motion;
+        };
+
         try {
-          const stored = window.localStorage.getItem("slipstream-theme");
-          const theme = stored === "light" || stored === "dark" ? stored : "dark";
-          document.documentElement.dataset.theme = theme;
+          const storedAppearance = window.localStorage.getItem("slipstream-appearance");
+          if (storedAppearance) {
+            apply(normalize(JSON.parse(storedAppearance)));
+            return;
+          }
+
+          const legacyTheme = window.localStorage.getItem("slipstream-theme");
+          apply(
+            normalize({
+              theme: legacyTheme === "light" || legacyTheme === "dark"
+                ? legacyTheme
+                : defaults.theme,
+            }),
+          );
         } catch {
-          document.documentElement.dataset.theme = "dark";
+          apply(defaults);
         }
       })();
     </script>

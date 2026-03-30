@@ -35,7 +35,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <SlimNavRail
         pathname={location.pathname}
         appearanceOpen={appearanceOpen}
-        onOpenAppearance={() => setAppearanceOpen(true)}
+        onToggleAppearance={() => setAppearanceOpen((current) => !current)}
       />
       <main className="flex-1 px-5 py-6 lg:px-8 lg:py-8">
         <div className="mb-6 flex min-w-0 items-center gap-3">
