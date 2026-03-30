@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
+import { SurfaceMessage, SurfaceSkeleton } from "../components/PageState";
 import { SessionLibraryRow } from "../components/SessionLibraryRow";
 import { useCaptureController } from "../hooks/useCaptureController";
 import type { SessionSummary } from "../types";
 import {
+  DEFAULT_SESSION_LIBRARY_QUERY,
+  createSessionLibrarySearchParams,
   type SessionLibrarySort,
+  type SessionLibraryStatusFilter,
   getSessionDateValue,
   matchesSessionQuery,
+  parseSessionLibraryQuery,
   sortSessionsForLibrary,
 } from "../utils/sessions";
-
-type StatusFilter = "all" | "processed" | "raw";
 
 function LibraryStat({
   label,
@@ -33,6 +37,7 @@ function LibraryStat({
 
 export function SessionsPage() {
   const capture = useCaptureController();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -40,11 +45,26 @@ export function SessionsPage() {
   const [processingSessionId, setProcessingSessionId] = useState<string | null>(
     null,
   );
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [dateFilter, setDateFilter] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<SessionLibrarySort>("newest");
   const [showCaptureSettings, setShowCaptureSettings] = useState(false);
+
+  const libraryQuery = useMemo(
+    () => parseSessionLibraryQuery(searchParams),
+    [searchParams],
+  );
+  const { q: searchQuery, status: statusFilter, date: dateFilter, sort: sortBy } =
+    libraryQuery;
+
+  const updateLibraryQuery = (
+    patch: Partial<{
+      q: string;
+      status: SessionLibraryStatusFilter;
+      date: string;
+      sort: SessionLibrarySort;
+    }>,
+  ) => {
+    const next = { ...libraryQuery, ...patch };
+    setSearchParams(createSessionLibrarySearchParams(next), { replace: true });
+  };
 
   const loadSessions = async (showLoading = false) => {
     if (showLoading) {
@@ -55,6 +75,7 @@ export function SessionsPage() {
       const result = await api.getSessions();
       setSessions(result);
       setSessionsError(null);
+      setActionError(null);
     } catch (error) {
       setSessionsError(
         error instanceof Error ? error.message : "Failed to load sessions",
@@ -127,9 +148,9 @@ export function SessionsPage() {
 
   const hasActiveControls =
     searchQuery.trim().length > 0 ||
-    statusFilter !== "all" ||
+    statusFilter !== DEFAULT_SESSION_LIBRARY_QUERY.status ||
     dateFilter.length > 0 ||
-    sortBy !== "newest";
+    sortBy !== DEFAULT_SESSION_LIBRARY_QUERY.sort;
 
   const liveSessionPinned = filteredSessions.some(
     (session) => session.session_id === activeSessionId,
@@ -168,10 +189,7 @@ export function SessionsPage() {
   };
 
   const clearControls = () => {
-    setSearchQuery("");
-    setStatusFilter("all");
-    setDateFilter("");
-    setSortBy("newest");
+    setSearchParams(new URLSearchParams(), { replace: true });
   };
 
   const isCaptureActive = capture.status?.is_active ?? false;
@@ -179,7 +197,7 @@ export function SessionsPage() {
   const liveLapCount = isCaptureActive ? capture.status?.laps_detected ?? 0 : 0;
 
   return (
-    <div className="max-w-7xl space-y-5">
+    <div className="density-library-stack max-w-7xl">
       <section className="overflow-hidden rounded-[30px] border border-border/70 bg-surface-1/85">
         <div className="density-library-hero relative px-6 py-6 lg:px-8 lg:py-7">
           <div className="hero-overlay pointer-events-none absolute inset-0" />
@@ -353,7 +371,7 @@ export function SessionsPage() {
             <input
               type="search"
               value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
+              onChange={(event) => updateLibraryQuery({ q: event.target.value })}
               placeholder="Search session, track, layout, location"
               className="density-library-control w-full rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 text-sm text-text-secondary placeholder:text-text-muted focus:border-accent focus:outline-none"
             />
@@ -364,7 +382,10 @@ export function SessionsPage() {
             <div className="relative">
               <select
                 value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+                onChange={(event) =>
+                  updateLibraryQuery({
+                    status: event.target.value as SessionLibraryStatusFilter,
+                  })}
                 className="density-library-control w-full appearance-none rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
               >
                 <option value="all">All Statuses</option>
@@ -392,7 +413,7 @@ export function SessionsPage() {
             <div className="relative">
               <select
                 value={dateFilter}
-                onChange={(event) => setDateFilter(event.target.value)}
+                onChange={(event) => updateLibraryQuery({ date: event.target.value })}
                 className="density-library-control w-full appearance-none rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
               >
                 <option value="">All Dates</option>
@@ -424,7 +445,9 @@ export function SessionsPage() {
               <select
                 value={sortBy}
                 onChange={(event) =>
-                  setSortBy(event.target.value as SessionLibrarySort)
+                  updateLibraryQuery({
+                    sort: event.target.value as SessionLibrarySort,
+                  })
                 }
                 className="density-library-control w-full appearance-none rounded-2xl border border-border/70 bg-surface-2/78 px-4 py-3 pr-12 text-sm text-text-secondary focus:border-accent focus:outline-none"
               >
@@ -475,34 +498,39 @@ export function SessionsPage() {
         </div>
       </section>
 
-      {sessionsError && (
-        <div className="rounded-[24px] border border-danger/20 bg-danger/8 px-4 py-3 text-sm text-danger">
-          {sessionsError}
-        </div>
+      {sessionsError && sessions.length > 0 && (
+        <SurfaceMessage
+          title="Could not refresh sessions"
+          message={sessionsError}
+          actionLabel="Retry"
+          onAction={() => void loadSessions(true)}
+          tone="danger"
+          className="text-left"
+        />
       )}
 
       {loading ? (
-        <div className="density-library-panel rounded-[28px] border border-border/70 bg-surface-1/85 px-5 py-8 text-sm text-text-muted">
-          Loading sessions...
-        </div>
+        <SurfaceSkeleton className="density-library-panel" rows={6} />
+      ) : sessionsError && sessions.length === 0 ? (
+        <SurfaceMessage
+          title="Could not load session library"
+          message={sessionsError}
+          actionLabel="Retry"
+          onAction={() => void loadSessions(true)}
+          tone="danger"
+        />
       ) : sessions.length === 0 ? (
-        <div className="density-library-panel rounded-[28px] border border-dashed border-border/70 bg-surface-1/85 px-5 py-10 text-center">
-          <p className="text-sm font-medium text-text-secondary">
-            No sessions in library.
-          </p>
-          <p className="mt-2 text-sm text-text-muted">Start capture to populate.</p>
-        </div>
+        <SurfaceMessage
+          title="No sessions in library"
+          message="Start capture to populate the library."
+        />
       ) : filteredSessions.length === 0 ? (
-        <div className="density-library-panel rounded-[28px] border border-dashed border-border/70 bg-surface-1/85 px-5 py-10 text-center">
-          <p className="text-sm font-medium text-text-secondary">No matches.</p>
-          <button
-            type="button"
-            onClick={clearControls}
-            className="density-library-control mt-3 inline-flex items-center rounded-full border border-accent/20 bg-accent/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:bg-accent/16 hover:text-text-primary cursor-pointer"
-          >
-            Clear Filters
-          </button>
-        </div>
+        <SurfaceMessage
+          title="No matching sessions"
+          message="Try a different search or clear the active filters."
+          actionLabel="Clear Filters"
+          onAction={clearControls}
+        />
       ) : (
         <section className="overflow-hidden rounded-[28px] border border-border/70 bg-surface-1/85">
           {filteredSessions.map((session) => (

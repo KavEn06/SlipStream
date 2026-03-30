@@ -4,6 +4,21 @@ const SESSION_ID_PATTERN =
   /^session_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/;
 
 export type SessionLibrarySort = "newest" | "oldest" | "laps" | "track";
+export type SessionLibraryStatusFilter = "all" | "processed" | "raw";
+
+export interface SessionLibraryQueryState {
+  q: string;
+  status: SessionLibraryStatusFilter;
+  date: string;
+  sort: SessionLibrarySort;
+}
+
+export const DEFAULT_SESSION_LIBRARY_QUERY: SessionLibraryQueryState = {
+  q: "",
+  status: "all",
+  date: "",
+  sort: "newest",
+};
 
 export interface DashboardKpis {
   totalSessions: number;
@@ -51,6 +66,55 @@ function parseSessionDate(session: SessionSummary): Date | null {
       Number(second),
     ),
   );
+}
+
+function isSessionLibrarySort(value: string | null | undefined): value is SessionLibrarySort {
+  return value === "newest" || value === "oldest" || value === "laps" || value === "track";
+}
+
+function isSessionLibraryStatusFilter(
+  value: string | null | undefined,
+): value is SessionLibraryStatusFilter {
+  return value === "all" || value === "processed" || value === "raw";
+}
+
+export function parseSessionLibraryQuery(
+  params: URLSearchParams,
+): SessionLibraryQueryState {
+  const statusParam = params.get("status");
+  const sortParam = params.get("sort");
+
+  return {
+    q: params.get("q") ?? DEFAULT_SESSION_LIBRARY_QUERY.q,
+    status: isSessionLibraryStatusFilter(statusParam)
+      ? statusParam
+      : DEFAULT_SESSION_LIBRARY_QUERY.status,
+    date: params.get("date") ?? DEFAULT_SESSION_LIBRARY_QUERY.date,
+    sort: isSessionLibrarySort(sortParam)
+      ? sortParam
+      : DEFAULT_SESSION_LIBRARY_QUERY.sort,
+  };
+}
+
+export function createSessionLibrarySearchParams(
+  state: SessionLibraryQueryState,
+): URLSearchParams {
+  const params = new URLSearchParams();
+
+  if (state.q.trim()) {
+    params.set("q", state.q);
+  }
+  if (state.status !== DEFAULT_SESSION_LIBRARY_QUERY.status) {
+    params.set("status", state.status);
+  }
+  if (state.date) {
+    params.set("date", state.date);
+  }
+  if (state.sort !== DEFAULT_SESSION_LIBRARY_QUERY.sort) {
+    params.set("sort", state.sort);
+  }
+
+  return params;
 }
 
 export function getSessionDateValue(session: SessionSummary): string {

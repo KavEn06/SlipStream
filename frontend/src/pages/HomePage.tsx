@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
+import { SurfaceMessage, SurfaceSkeleton } from "../components/PageState";
 import { StatusBadge } from "../components/StatusBadge";
 import { useCaptureController } from "../hooks/useCaptureController";
 import type { SessionDetail, SessionSummary } from "../types";
@@ -179,9 +180,66 @@ export function HomePage() {
     }
   };
 
+  const latestSessionsSection = (() => {
+    if (sessionsLoading) {
+      return <SurfaceSkeleton className="mt-5" rows={3} />;
+    }
+
+    if (sessionsError && recentSessions.length === 0) {
+      return (
+        <SurfaceMessage
+          title="Could not load recent sessions"
+          message={sessionsError}
+          actionLabel="Retry"
+          onAction={() => void loadSessions(true)}
+          tone="danger"
+          className="mt-5"
+        />
+      );
+    }
+
+    if (recentSessions.length === 0) {
+      return (
+        <div className="mt-5 rounded-3xl border border-dashed border-border/70 bg-surface-2/72 p-8 text-center text-sm text-text-secondary">
+          No sessions
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-5 overflow-hidden rounded-3xl border border-border/60">
+        {recentSessions.map((session) => (
+          <Link
+            key={session.session_id}
+            to={`/sessions/${session.session_id}`}
+            className="density-home-list-row flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-surface-2/72 px-4 py-4 transition-colors hover:bg-surface-3/82 last:border-b-0"
+          >
+            <div className="min-w-0">
+              <p className="font-mono text-sm font-medium text-text-primary">
+                {formatSessionTimestamp(session.session_id)}
+              </p>
+              <p className="mt-1 truncate text-sm text-text-secondary">
+                {getSessionVehicleTrackLabel(session)}
+              </p>
+              <p className="mt-1 text-xs text-text-muted">
+                {formatSessionDateLabel(session)}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-text-muted">
+                {session.total_laps} laps
+              </span>
+              <StatusBadge processed={session.has_processed} />
+            </div>
+          </Link>
+        ))}
+      </div>
+    );
+  })();
+
   return (
-    <div className="density-home-stack max-w-7xl space-y-6">
-      <section className="density-home-cluster space-y-4">
+    <div className="density-home-stack max-w-7xl">
+      <section className="density-home-cluster">
         <div className="overflow-hidden rounded-[30px] border border-border/70 bg-surface-1/85">
           <div className="grid gap-0 xl:grid-cols-[minmax(0,1.8fr)_300px]">
             <div className="density-home-hero relative overflow-hidden px-6 py-6 lg:px-8 lg:py-8">
@@ -344,45 +402,11 @@ export function HomePage() {
             </Link>
           </div>
 
-          {sessionsError && (
+          {sessionsError && recentSessions.length > 0 && (
             <p className="mt-4 text-sm text-danger">{sessionsError}</p>
           )}
 
-          {sessionsLoading ? (
-            <p className="mt-5 text-sm text-text-muted">Loading...</p>
-          ) : recentSessions.length === 0 ? (
-            <div className="mt-5 rounded-3xl border border-dashed border-border/70 bg-surface-2/72 p-8 text-center text-sm text-text-secondary">
-              No sessions
-            </div>
-          ) : (
-            <div className="mt-5 overflow-hidden rounded-3xl border border-border/60">
-              {recentSessions.map((session) => (
-                <Link
-                  key={session.session_id}
-                  to={`/sessions/${session.session_id}`}
-                  className="density-home-list-row flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-surface-2/72 px-4 py-4 transition-colors hover:bg-surface-3/82 last:border-b-0"
-                >
-                  <div className="min-w-0">
-                    <p className="font-mono text-sm font-medium text-text-primary">
-                      {formatSessionTimestamp(session.session_id)}
-                    </p>
-                    <p className="mt-1 truncate text-sm text-text-secondary">
-                      {getSessionVehicleTrackLabel(session)}
-                    </p>
-                    <p className="mt-1 text-xs text-text-muted">
-                      {formatSessionDateLabel(session)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-text-muted">
-                      {session.total_laps} laps
-                    </span>
-                    <StatusBadge processed={session.has_processed} />
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
+          {latestSessionsSection}
         </section>
       </section>
 
@@ -415,7 +439,7 @@ export function HomePage() {
             No tracks
           </div>
         ) : (
-          <div className="density-home-cluster mt-5 space-y-4">
+          <div className="density-home-cluster mt-5">
             {trackBreakdown.map((track, index) => (
               <div key={track.name} className="space-y-2">
                 <div className="flex items-center justify-between gap-3">

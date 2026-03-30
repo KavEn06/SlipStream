@@ -1,15 +1,34 @@
-import { useEffect, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { SessionDetail } from "../types";
+import { SurfaceMessage, SurfaceSkeleton } from "../components/PageState";
 import { StatusBadge } from "../components/StatusBadge";
 import { useCaptureController } from "../hooks/useCaptureController";
+import type { LapSummary, SessionDetail } from "../types";
+
+type LapFilter = "all" | "processed" | "raw" | "valid" | "invalid";
 
 function formatTime(seconds: number | null): string {
   if (seconds === null) return "--";
   const mins = Math.floor(seconds / 60);
   const secs = (seconds % 60).toFixed(3);
   return mins > 0 ? `${mins}:${secs.padStart(6, "0")}` : `${secs}s`;
+}
+
+function matchesLapFilter(lap: LapSummary, filter: LapFilter): boolean {
+  switch (filter) {
+    case "processed":
+      return lap.has_processed;
+    case "raw":
+      return lap.has_raw;
+    case "valid":
+      return lap.is_valid === true;
+    case "invalid":
+      return lap.is_valid === false;
+    case "all":
+    default:
+      return true;
+  }
 }
 
 function SplitDeleteButton({
@@ -34,15 +53,16 @@ function SplitDeleteButton({
   const idleWidthClass = compact ? "w-[4.75rem]" : "w-[8.5rem]";
   const confirmWidthClass = compact ? "w-[8.75rem]" : "w-[13.75rem]";
   const textClass = compact ? "text-xs" : "text-sm";
-  const paddingClass = compact ? "px-3 py-1.5" : "px-3.5 py-2";
+  const heightClass = compact ? "h-8" : "h-10";
+  const paddingClass = compact ? "px-3" : "px-4";
   const deleteToneClass =
-    "border-[#ff4d57]/28 bg-[#ff4d57]/10 text-[#ff4d57] hover:bg-[#ff4d57]/18";
+    "border-red-500/28 bg-red-500/10 text-red-500 hover:bg-red-500/18";
   const confirmToneClass =
-    "border-r border-[#ff4d57]/18 bg-[#ff4d57]/14 text-[#ff4d57] hover:bg-[#ff4d57]/22";
+    "border-r border-red-500/18 bg-red-500/14 text-red-500 hover:bg-red-500/22";
 
   return (
     <div
-      className={`inline-grid overflow-hidden rounded-full border border-[#ff4d57]/24 bg-surface-1/82 transition-all duration-200 ease-out ${
+      className={`inline-grid overflow-hidden rounded-full border border-red-500/24 bg-surface-1/82 transition-all duration-200 ease-out ${
         confirming ? `grid-cols-2 ${confirmWidthClass}` : `grid-cols-1 ${idleWidthClass}`
       }`}
     >
@@ -52,7 +72,7 @@ function SplitDeleteButton({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className={`motion-safe-color ${paddingClass} ${textClass} ${confirmToneClass} font-medium disabled:opacity-50 cursor-pointer`}
+            className={`motion-safe-color inline-flex ${heightClass} items-center justify-center ${paddingClass} ${textClass} ${confirmToneClass} font-medium disabled:opacity-50 cursor-pointer`}
           >
             {busy ? busyLabel : "Confirm"}
           </button>
@@ -60,7 +80,7 @@ function SplitDeleteButton({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className={`motion-safe-color ${paddingClass} ${textClass} bg-surface-1/84 font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary disabled:opacity-50 cursor-pointer`}
+            className={`motion-safe-color inline-flex ${heightClass} items-center justify-center ${paddingClass} ${textClass} bg-surface-1/84 font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary disabled:opacity-50 cursor-pointer`}
           >
             Cancel
           </button>
@@ -69,11 +89,28 @@ function SplitDeleteButton({
         <button
           type="button"
           onClick={onStart}
-          className={`motion-safe-color ${paddingClass} ${textClass} ${deleteToneClass} font-medium cursor-pointer`}
+          className={`motion-safe-color inline-flex ${heightClass} items-center justify-center ${paddingClass} ${textClass} ${deleteToneClass} font-medium cursor-pointer`}
         >
           {idleLabel}
         </button>
       )}
+    </div>
+  );
+}
+
+function SessionMetaCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="density-detail-card rounded-2xl border border-border/70 bg-surface-2/78">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
+        {label}
+      </p>
+      <p className="mt-2 text-sm font-medium text-text-primary">{value}</p>
     </div>
   );
 }
@@ -83,6 +120,7 @@ export function SessionDetailPage() {
   const navigate = useNavigate();
   const capture = useCaptureController();
   const [session, setSession] = useState<SessionDetail | null>(null);
+  const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [deletingSession, setDeletingSession] = useState(false);
   const [confirmingSessionDelete, setConfirmingSessionDelete] = useState(false);
@@ -90,23 +128,38 @@ export function SessionDetailPage() {
   const [confirmingLapDelete, setConfirmingLapDelete] = useState<number | null>(
     null,
   );
+  const [lapFilter, setLapFilter] = useState<LapFilter>("all");
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => {
+  const load = async () => {
     if (!sessionId) return;
+
+    setLoading(true);
     setError(null);
-    api
-      .getSession(sessionId)
-      .then(setSession)
-      .catch((err) => setError(err.message));
+
+    try {
+      const detail = await api.getSession(sessionId);
+      setSession(detail);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load session");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(load, [sessionId]);
+  useEffect(() => {
+    void load();
+  }, [sessionId]);
 
   const isLiveSession =
     Boolean(sessionId) &&
     (capture.status?.is_active ?? false) &&
     capture.status?.session_id === sessionId;
+
+  const filteredLaps = useMemo(
+    () => session?.laps.filter((lap) => matchesLapFilter(lap, lapFilter)) ?? [],
+    [lapFilter, session],
+  );
 
   const handleProcess = async () => {
     if (!sessionId) return;
@@ -114,16 +167,18 @@ export function SessionDetailPage() {
       setError("Stop capture before processing this session");
       return;
     }
+
     setProcessing(true);
     try {
       await api.processSession(sessionId);
-      load();
+      await load();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to process session",
       );
+    } finally {
+      setProcessing(false);
     }
-    setProcessing(false);
   };
 
   const handleDeleteSession = async () => {
@@ -145,8 +200,7 @@ export function SessionDetailPage() {
     setDeletingLapNumber(lapNumber);
     try {
       await api.deleteLap(sessionId, lapNumber);
-      const detail = await api.getSession(sessionId);
-      setSession(detail);
+      await load();
       setConfirmingLapDelete(null);
     } catch (err) {
       if (err instanceof Error && err.message === "Session not found") {
@@ -159,149 +213,241 @@ export function SessionDetailPage() {
     }
   };
 
-  if (error)
+  if (loading && !session) {
     return (
-      <p className="text-danger p-8">
-        {error}
-      </p>
+      <div className="max-w-5xl space-y-5">
+        <SurfaceSkeleton rows={4} />
+        <SurfaceSkeleton rows={6} />
+      </div>
     );
-  if (!session)
-    return <p className="text-text-muted p-8">Loading...</p>;
+  }
+
+  if (error && !session) {
+    return (
+      <SurfaceMessage
+        title="Could not load session"
+        message={error}
+        actionLabel="Retry"
+        onAction={() => void load()}
+        tone="danger"
+        className="max-w-5xl"
+      />
+    );
+  }
+
+  if (!session) {
+    return null;
+  }
 
   return (
-    <div className="max-w-5xl space-y-8">
-      <div>
-        <Link
-          to="/sessions"
-          className="text-sm text-text-muted transition-colors hover:text-text-secondary"
-        >
-          &larr; Sessions
-        </Link>
-        <h2 className="mt-3 text-3xl font-semibold tracking-tight">
-          {session.session_id}
-        </h2>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {[
-          { label: "Track", value: session.track_circuit || "Unknown" },
-          { label: "Layout", value: session.track_layout || "--" },
-          { label: "Location", value: session.track_location || "--" },
-          { label: "Laps", value: String(session.total_laps) },
-        ].map((item) => (
-          <div
-            key={item.label}
-            className="rounded-3xl border border-border/70 bg-surface-1/85 p-4"
-          >
-            <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
-              {item.label}
-            </p>
-            <p className="mt-2 text-sm font-medium">{item.value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <StatusBadge processed={session.has_processed} />
-        {!session.has_processed && (
-          <>
-            <button
-              onClick={handleProcess}
-              disabled={processing || isLiveSession}
-              className="rounded-full bg-accent/12 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/18 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-              title={isLiveSession ? "Stop capture before processing this session" : undefined}
-            >
-              {processing ? "Processing..." : "Process Session"}
-            </button>
-            {isLiveSession && (
-              <p className="text-xs uppercase tracking-[0.14em] text-text-muted">
-                Stop capture to process this session
-              </p>
-            )}
-          </>
-        )}
-        <SplitDeleteButton
-          confirming={confirmingSessionDelete}
-          busy={deletingSession}
-          idleLabel="Delete Session"
-          busyLabel="Deleting..."
-          onStart={() => setConfirmingSessionDelete(true)}
-          onConfirm={handleDeleteSession}
-          onCancel={() => setConfirmingSessionDelete(false)}
-        />
-      </div>
-
-      <div className="overflow-hidden rounded-3xl border border-border/70 bg-surface-1/85">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border/60 text-[11px] uppercase tracking-[0.16em] text-text-muted">
-              <th className="text-left p-3 font-medium">Lap</th>
-              <th className="text-left p-3 font-medium">Time</th>
-              <th className="text-left p-3 font-medium">Valid</th>
-              <th className="text-left p-3 font-medium">Data</th>
-              <th className="p-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {session.laps.map((lap) => (
-              <tr
-                key={lap.lap_number}
-                className="border-b border-border/60 transition-colors hover:bg-surface-2/78"
+    <div className="density-detail-stack max-w-5xl">
+      <section className="sticky top-4 z-20 overflow-hidden rounded-[28px] border border-border/70 bg-surface-1/92 backdrop-blur-xl">
+        <div className="density-detail-panel">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <Link
+                to="/sessions"
+                className="text-sm text-text-muted transition-colors hover:text-text-secondary"
               >
-                <td className="p-3 font-medium">Lap {lap.lap_number}</td>
-                <td className="p-3 font-mono text-text-secondary">
-                  {formatTime(lap.lap_time_s)}
-                </td>
-                <td className="p-3">
-                  {lap.is_valid === null ? (
-                    <span className="text-text-muted">--</span>
-                  ) : lap.is_valid ? (
-                    <span className="text-success text-xs font-medium">
-                      Valid
-                    </span>
-                  ) : (
-                    <span className="text-danger text-xs font-medium">
-                      Invalid
-                    </span>
-                  )}
-                </td>
-                <td className="p-3 space-x-2">
-                  {lap.has_raw && (
-                    <span className="rounded-full border border-border/70 bg-surface-2/86 px-2.5 py-1 text-[11px] text-text-secondary">
-                      Raw
-                    </span>
-                  )}
-                  {lap.has_processed && (
-                    <span className="rounded-full bg-accent/10 px-2.5 py-1 text-[11px] text-accent">
-                      Processed
-                    </span>
-                  )}
-                </td>
-                <td className="p-3 text-right">
-                  <div className="flex items-center justify-end gap-3">
-                    <Link
-                      to={`/sessions/${session.session_id}/laps/${lap.lap_number}`}
-                      className="text-accent text-xs hover:underline font-medium"
-                    >
-                      Review
-                    </Link>
-                    <SplitDeleteButton
-                      confirming={confirmingLapDelete === lap.lap_number}
-                      busy={deletingLapNumber === lap.lap_number}
-                      idleLabel="Delete"
-                      busyLabel="..."
-                      onStart={() => setConfirmingLapDelete(lap.lap_number)}
-                      onConfirm={() => handleDeleteLap(lap.lap_number)}
-                      onCancel={() => setConfirmingLapDelete(null)}
-                      compact
-                    />
-                  </div>
-                </td>
+                &larr; Sessions
+              </Link>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <h2 className="min-w-0 truncate text-3xl font-semibold tracking-tight text-text-primary">
+                  {session.session_id}
+                </h2>
+                <StatusBadge processed={session.has_processed} />
+                {isLiveSession && (
+                  <span className="inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-accent">
+                    <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+                    Capture Live
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {!session.has_processed && (
+                <button
+                  type="button"
+                  onClick={handleProcess}
+                  disabled={processing || isLiveSession}
+                  className="inline-flex h-10 items-center rounded-full bg-accent/12 px-4 text-sm font-medium text-accent transition-colors hover:bg-accent/18 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                  title={
+                    isLiveSession
+                      ? "Stop capture before processing this session"
+                      : undefined
+                  }
+                >
+                  {processing ? "Processing..." : "Process Session"}
+                </button>
+              )}
+              <SplitDeleteButton
+                confirming={confirmingSessionDelete}
+                busy={deletingSession}
+                idleLabel="Delete Session"
+                busyLabel="Deleting..."
+                onStart={() => setConfirmingSessionDelete(true)}
+                onConfirm={handleDeleteSession}
+                onCancel={() => setConfirmingSessionDelete(false)}
+              />
+            </div>
+          </div>
+
+          {isLiveSession && (
+            <p className="mt-4 text-xs uppercase tracking-[0.14em] text-text-muted">
+              Stop capture to process this session
+            </p>
+          )}
+
+          <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <SessionMetaCard
+              label="Track"
+              value={session.track_circuit || "Unknown"}
+            />
+            <SessionMetaCard
+              label="Layout"
+              value={session.track_layout || "--"}
+            />
+            <SessionMetaCard
+              label="Location"
+              value={session.track_location || "--"}
+            />
+            <SessionMetaCard
+              label="Laps"
+              value={String(session.total_laps)}
+            />
+          </div>
+        </div>
+      </section>
+
+      {error && (
+        <SurfaceMessage
+          title="Session action failed"
+          message={error}
+          actionLabel="Retry"
+          onAction={() => void load()}
+          tone="danger"
+          className="text-left"
+        />
+      )}
+
+      <section className="density-detail-panel rounded-[28px] border border-border/70 bg-surface-1/85">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            {(
+              [
+                ["all", "All"],
+                ["processed", "Processed"],
+                ["raw", "Raw"],
+                ["valid", "Valid"],
+                ["invalid", "Invalid"],
+              ] as const
+            ).map(([value, label]) => {
+              const active = lapFilter === value;
+
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setLapFilter(value)}
+                  className={`motion-safe-color inline-flex h-9 items-center rounded-full border px-4 text-xs font-medium uppercase tracking-[0.14em] cursor-pointer ${
+                    active
+                      ? "border-accent/24 bg-accent/12 text-accent"
+                      : "border-border/70 bg-surface-2/84 text-text-secondary hover:border-border-strong hover:bg-surface-3 hover:text-text-primary"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+
+          <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
+            {filteredLaps.length} shown / {session.laps.length} total
+          </p>
+        </div>
+      </section>
+
+      {filteredLaps.length === 0 ? (
+        <SurfaceMessage
+          title="No laps match the current filter"
+          message="Choose a different lap filter to view more session data."
+        />
+      ) : (
+        <div className="overflow-hidden rounded-3xl border border-border/70 bg-surface-1/85">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border/60 text-[11px] uppercase tracking-[0.16em] text-text-muted">
+                <th className="density-detail-table-cell p-3 text-left font-medium">Lap</th>
+                <th className="density-detail-table-cell p-3 text-left font-medium">Time</th>
+                <th className="density-detail-table-cell p-3 text-left font-medium">Valid</th>
+                <th className="density-detail-table-cell p-3 text-left font-medium">Data</th>
+                <th className="density-detail-table-cell p-3" />
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filteredLaps.map((lap) => (
+                <tr
+                  key={lap.lap_number}
+                  className="border-b border-border/60 transition-colors hover:bg-surface-2/78"
+                >
+                  <td className="density-detail-table-cell p-3 font-medium text-text-primary">
+                    Lap {lap.lap_number}
+                  </td>
+                  <td className="density-detail-table-cell p-3 font-mono text-text-secondary">
+                    {formatTime(lap.lap_time_s)}
+                  </td>
+                  <td className="density-detail-table-cell p-3">
+                    {lap.is_valid === null ? (
+                      <span className="text-text-muted">--</span>
+                    ) : lap.is_valid ? (
+                      <span className="text-xs font-medium text-success">
+                        Valid
+                      </span>
+                    ) : (
+                      <span className="text-xs font-medium text-danger">
+                        Invalid
+                      </span>
+                    )}
+                  </td>
+                  <td className="density-detail-table-cell p-3 space-x-2">
+                    {lap.has_raw && (
+                      <span className="rounded-full border border-border/70 bg-surface-2/86 px-2.5 py-1 text-[11px] text-text-secondary">
+                        Raw
+                      </span>
+                    )}
+                    {lap.has_processed && (
+                      <span className="rounded-full bg-accent/10 px-2.5 py-1 text-[11px] text-accent">
+                        Processed
+                      </span>
+                    )}
+                  </td>
+                  <td className="density-detail-table-cell p-3 text-right">
+                    <div className="flex items-center justify-end gap-3">
+                      <Link
+                        to={`/sessions/${session.session_id}/laps/${lap.lap_number}`}
+                        className="text-xs font-medium text-accent hover:underline"
+                      >
+                        Review
+                      </Link>
+                      <SplitDeleteButton
+                        confirming={confirmingLapDelete === lap.lap_number}
+                        busy={deletingLapNumber === lap.lap_number}
+                        idleLabel="Delete"
+                        busyLabel="..."
+                        onStart={() => setConfirmingLapDelete(lap.lap_number)}
+                        onConfirm={() => handleDeleteLap(lap.lap_number)}
+                        onCancel={() => setConfirmingLapDelete(null)}
+                        compact
+                      />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

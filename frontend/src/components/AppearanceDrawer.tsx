@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 import {
   useAppearance,
   type AccentName,
@@ -167,9 +167,11 @@ function PreferenceSection<T extends string>({
 export function AppearanceDrawer({
   open,
   onClose,
+  returnFocusRef,
 }: {
   open: boolean;
   onClose: () => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const {
     theme,
@@ -183,6 +185,7 @@ export function AppearanceDrawer({
   } = useAppearance();
   const titleId = useId();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -190,12 +193,47 @@ export function AppearanceDrawer({
     }
 
     const previousOverflow = document.body.style.overflow;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
     document.body.style.overflow = "hidden";
     closeButtonRef.current?.focus();
+
+    const getFocusableElements = () => {
+      const panel = panelRef.current;
+      if (!panel) {
+        return [];
+      }
+
+      return Array.from(
+        panel.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => !element.hasAttribute("hidden"));
+    };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const focusable = getFocusableElements();
+      if (focusable.length === 0) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
 
@@ -204,8 +242,12 @@ export function AppearanceDrawer({
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
+      returnFocusRef?.current?.focus?.();
+      if (!returnFocusRef?.current && previouslyFocused) {
+        previouslyFocused.focus();
+      }
     };
-  }, [open, onClose]);
+  }, [open, onClose, returnFocusRef]);
 
   return (
     <div
@@ -224,6 +266,8 @@ export function AppearanceDrawer({
       />
 
       <aside
+        ref={panelRef}
+        id="appearance-drawer"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

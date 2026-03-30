@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -23,6 +24,11 @@ interface Props {
   label: string;
   color: string;
   height?: number;
+  syncId?: string;
+  badge?: ReactNode;
+  action?: ReactNode;
+  className?: string;
+  emptyMessage?: string;
 }
 
 export function LapChart({
@@ -32,22 +38,48 @@ export function LapChart({
   label,
   color,
   height = 200,
+  syncId,
+  badge,
+  action,
+  className = "",
+  emptyMessage,
 }: Props) {
   if (!data.length || !(yKey in data[0])) {
     return (
-      <div className="flex h-48 items-center justify-center rounded-3xl border border-border/70 bg-surface-1/85 p-4 text-sm text-text-muted">
-        No data for {label}
+      <div
+        className={`density-analysis-chart rounded-3xl border border-border/70 bg-surface-1/85 ${className}`.trim()}
+      >
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-text-muted">
+              {label}
+            </p>
+            {badge}
+          </div>
+          {action}
+        </div>
+        <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-border/70 bg-surface-2/72 p-4 text-sm text-text-muted">
+          {emptyMessage ?? `No data for ${label}`}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="rounded-3xl border border-border/70 bg-surface-1/85 p-5">
-      <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.16em] text-text-muted">
-        {label}
-      </p>
+    <div
+      className={`density-analysis-chart rounded-3xl border border-border/70 bg-surface-1/85 ${className}`.trim()}
+    >
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-text-muted">
+            {label}
+          </p>
+          {badge}
+        </div>
+        {action}
+      </div>
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data}>
+        <LineChart data={data} syncId={syncId}>
           <CartesianGrid stroke={COLORS.grid} strokeDasharray="2 6" />
           <XAxis
             dataKey={xKey}
@@ -63,6 +95,7 @@ export function LapChart({
             width={55}
           />
           <Tooltip
+            cursor={{ stroke: COLORS.axis, strokeDasharray: "3 6" }}
             contentStyle={{
               backgroundColor: COLORS.tooltipBg,
               border: `1px solid ${COLORS.tooltipBorder}`,

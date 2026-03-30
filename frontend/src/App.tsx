@@ -1,21 +1,61 @@
+import { Suspense, lazy, type ReactNode } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
-import { HomePage } from "./pages/HomePage";
-import { SessionsPage } from "./pages/SessionsPage";
-import { SessionDetailPage } from "./pages/SessionDetailPage";
-import { LapReviewPage } from "./pages/LapReviewPage";
+import { RouteLoadingFallback } from "./components/PageState";
+
+const HomePage = lazy(async () => ({
+  default: (await import("./pages/HomePage")).HomePage,
+}));
+const SessionsPage = lazy(async () => ({
+  default: (await import("./pages/SessionsPage")).SessionsPage,
+}));
+const SessionDetailPage = lazy(async () => ({
+  default: (await import("./pages/SessionDetailPage")).SessionDetailPage,
+}));
+const LapReviewPage = lazy(async () => ({
+  default: (await import("./pages/LapReviewPage")).LapReviewPage,
+}));
+
+function RouteElement({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<RouteLoadingFallback />}>{children}</Suspense>;
+}
 
 export default function App() {
   return (
     <BrowserRouter>
       <Layout>
         <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/sessions" element={<SessionsPage />} />
-          <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
+          <Route
+            path="/"
+            element={
+              <RouteElement>
+                <HomePage />
+              </RouteElement>
+            }
+          />
+          <Route
+            path="/sessions"
+            element={
+              <RouteElement>
+                <SessionsPage />
+              </RouteElement>
+            }
+          />
+          <Route
+            path="/sessions/:sessionId"
+            element={
+              <RouteElement>
+                <SessionDetailPage />
+              </RouteElement>
+            }
+          />
           <Route
             path="/sessions/:sessionId/laps/:lapNumber"
-            element={<LapReviewPage />}
+            element={
+              <RouteElement>
+                <LapReviewPage />
+              </RouteElement>
+            }
           />
         </Routes>
       </Layout>

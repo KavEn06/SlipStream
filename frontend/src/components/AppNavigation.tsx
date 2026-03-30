@@ -1,3 +1,4 @@
+import { type RefObject } from "react";
 import { Link } from "react-router-dom";
 import { useCaptureController } from "../hooks/useCaptureController";
 
@@ -94,10 +95,12 @@ function getItemIcon(path: string) {
 export function SlimNavRail({
   pathname,
   appearanceOpen,
+  appearanceButtonRef,
   onToggleAppearance,
 }: {
   pathname: string;
   appearanceOpen: boolean;
+  appearanceButtonRef: RefObject<HTMLButtonElement | null>;
   onToggleAppearance: () => void;
 }) {
   const capture = useCaptureController();
@@ -127,6 +130,7 @@ export function SlimNavRail({
                 key={item.path}
                 to={item.path}
                 aria-label={item.label}
+                aria-current={active ? "page" : undefined}
                 title={item.label}
                 className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl border transition-colors ${
                   active
@@ -142,10 +146,12 @@ export function SlimNavRail({
 
         <div className="mt-auto flex flex-col items-center gap-3 pb-1">
           <button
+            ref={appearanceButtonRef}
             type="button"
             onClick={onToggleAppearance}
             aria-label="Appearance"
             aria-pressed={appearanceOpen}
+            aria-controls="appearance-drawer"
             title="Appearance"
             className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border transition-colors cursor-pointer ${
               appearanceOpen
