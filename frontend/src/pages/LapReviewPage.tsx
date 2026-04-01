@@ -279,11 +279,6 @@ export function LapReviewPage() {
         syncId="lap-review"
         height={height}
         className={className}
-        badge={
-          <StatusPill tone={sourceBadgeTone}>
-            {sourceBadgeLabel}
-          </StatusPill>
-        }
         action={
           <button
             type="button"
@@ -314,12 +309,14 @@ export function LapReviewPage() {
 
   return (
     <div className="density-analysis-stack max-w-6xl">
-      <section className="overflow-hidden rounded-[24px] border border-border/70 bg-surface-1/90">
-        <div className="density-analysis-panel">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <section className="relative overflow-hidden rounded-[28px] border border-border/70 bg-surface-1/92 backdrop-blur-xl">
+        <div className="hero-overlay pointer-events-none absolute inset-0" />
+        <div className="hero-band pointer-events-none absolute -left-16 top-8 h-24 w-56 rotate-[-16deg]" />
+        <div className="density-analysis-panel relative">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h2 className="text-2xl font-semibold tracking-tight text-text-primary">
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="min-w-0 truncate text-3xl font-semibold tracking-tight text-text-primary">
                   Lap {lapNumber}
                 </h2>
                 <StatusPill tone={sourceBadgeTone}>{sourceBadgeLabel}</StatusPill>

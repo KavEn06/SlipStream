@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { CaptureStatus } from "../types";
 
+export const DEFAULT_CAPTURE_IP = "127.0.0.1";
+export const DEFAULT_CAPTURE_PORT = "5300";
+
 interface UseCaptureControllerOptions {
   pollIntervalMs?: number;
   defaultIp?: string;
@@ -28,8 +31,8 @@ function normalizeCaptureStatus(status: CaptureStatus): CaptureStatus {
 
 export function useCaptureController({
   pollIntervalMs = 2000,
-  defaultIp = "127.0.0.1",
-  defaultPort = "5300",
+  defaultIp = DEFAULT_CAPTURE_IP,
+  defaultPort = DEFAULT_CAPTURE_PORT,
 }: UseCaptureControllerOptions = {}) {
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [ip, setIp] = useState(defaultIp);
@@ -77,9 +80,13 @@ export function useCaptureController({
   const startCapture = async () => {
     setBusy(true);
     try {
+      const nextIp = ip.trim() || defaultIp;
+      const nextPort = port.trim() || defaultPort;
       const result = normalizeCaptureStatus(
-        await api.startCapture({ ip, port: parseInt(port, 10) }),
+        await api.startCapture({ ip: nextIp, port: parseInt(nextPort, 10) }),
       );
+      setIp(nextIp);
+      setPort(nextPort);
       setStatus(result);
       setError(null);
       return result;

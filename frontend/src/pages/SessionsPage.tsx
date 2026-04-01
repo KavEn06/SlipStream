@@ -3,7 +3,11 @@ import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { SurfaceMessage, SurfaceSkeleton } from "../components/PageState";
 import { SessionLibraryRow } from "../components/SessionLibraryRow";
-import { useCaptureController } from "../hooks/useCaptureController";
+import {
+  DEFAULT_CAPTURE_IP,
+  DEFAULT_CAPTURE_PORT,
+  useCaptureController,
+} from "../hooks/useCaptureController";
 import type { SessionSummary } from "../types";
 import {
   DEFAULT_SESSION_LIBRARY_QUERY,
@@ -330,9 +334,10 @@ export function SessionsPage() {
                 <input
                   type="text"
                   value={capture.ip}
+                  placeholder={DEFAULT_CAPTURE_IP}
                   disabled={!showCaptureSettings || isCaptureActive}
                   onChange={(event) => capture.setIp(event.target.value)}
-                  className="w-full border-x-0 border-b border-t-0 border-border bg-transparent px-0 py-2 text-sm text-text-secondary focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 md:w-40"
+                  className="capture-settings-input w-full border-x-0 border-b border-t-0 border-border bg-transparent px-0 py-2 text-sm text-text-secondary placeholder:text-text-muted/60 focus:border-border focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 md:w-40"
                 />
               </div>
 
@@ -341,9 +346,10 @@ export function SessionsPage() {
                 <input
                   type="text"
                   value={capture.port}
+                  placeholder={DEFAULT_CAPTURE_PORT}
                   disabled={!showCaptureSettings || isCaptureActive}
                   onChange={(event) => capture.setPort(event.target.value)}
-                  className="w-full border-x-0 border-b border-t-0 border-border bg-transparent px-0 py-2 text-sm text-text-secondary focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 md:w-28"
+                  className="capture-settings-input w-full border-x-0 border-b border-t-0 border-border bg-transparent px-0 py-2 text-sm text-text-secondary placeholder:text-text-muted/60 focus:border-border focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 md:w-28"
                 />
               </div>
 

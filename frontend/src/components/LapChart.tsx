@@ -17,6 +17,45 @@ const COLORS = {
   tooltipBorder: "var(--app-chart-tooltip-border)",
 };
 
+function formatTooltipNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    return String(value);
+  }
+
+  if (value === 0) {
+    return "0";
+  }
+
+  return Number.parseFloat(value.toPrecision(3)).toString();
+}
+
+function formatTooltipValue(
+  value: number | string | readonly (number | string)[] | undefined,
+): string {
+  if (value === undefined) {
+    return "";
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => formatTooltipValue(entry)).join(" - ");
+  }
+
+  if (typeof value === "number") {
+    return formatTooltipNumber(value);
+  }
+
+  if (typeof value === "string") {
+    const numericValue = Number(value);
+    if (!Number.isNaN(numericValue) && value.trim() !== "") {
+      return formatTooltipNumber(numericValue);
+    }
+
+    return value;
+  }
+
+  return String(value);
+}
+
 interface Props {
   data: Record<string, number | string>[];
   xKey?: string;
@@ -103,6 +142,12 @@ export function LapChart({
               fontSize: 12,
             }}
             labelStyle={{ color: COLORS.tick }}
+            formatter={(value) => [formatTooltipValue(value), label]}
+            labelFormatter={(label) =>
+              typeof label === "number" || typeof label === "string"
+                ? formatTooltipValue(label)
+                : String(label)
+            }
           />
           <Line
             type="monotone"

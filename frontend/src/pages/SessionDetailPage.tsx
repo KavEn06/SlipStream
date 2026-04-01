@@ -241,17 +241,13 @@ export function SessionDetailPage() {
 
   return (
     <div className="density-detail-stack max-w-5xl">
-      <section className="sticky top-4 z-20 overflow-hidden rounded-[28px] border border-border/70 bg-surface-1/92 backdrop-blur-xl">
-        <div className="density-detail-panel">
+      <section className="sticky top-4 z-20 overflow-hidden rounded-[28px] border border-border/70 bg-surface-1/92 backdrop-blur-xl relative">
+        <div className="hero-overlay pointer-events-none absolute inset-0" />
+        <div className="hero-band pointer-events-none absolute -left-16 top-8 h-24 w-56 rotate-[-16deg]" />
+        <div className="density-detail-panel relative">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
-              <Link
-                to="/sessions"
-                className="text-sm text-text-muted transition-colors hover:text-text-secondary"
-              >
-                &larr; Sessions
-              </Link>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <h2 className="min-w-0 truncate text-3xl font-semibold tracking-tight text-text-primary">
                   {session.session_id}
                 </h2>
