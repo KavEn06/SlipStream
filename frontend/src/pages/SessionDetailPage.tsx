@@ -5,6 +5,11 @@ import { SurfaceMessage, SurfaceSkeleton } from "../components/PageState";
 import { StatusBadge } from "../components/StatusBadge";
 import { useCaptureController } from "../hooks/useCaptureController";
 import type { LapSummary, SessionDetail } from "../types";
+import {
+  applySessionDisplayNameOverride,
+  getSessionTitle,
+  saveSessionDisplayNameOverride,
+} from "../utils/sessions";
 
 type LapFilter = "all" | "processed" | "raw" | "valid" | "invalid";
 
@@ -122,6 +127,7 @@ export function SessionDetailPage() {
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [savingDisplayName, setSavingDisplayName] = useState(false);
   const [deletingSession, setDeletingSession] = useState(false);
   const [confirmingSessionDelete, setConfirmingSessionDelete] = useState(false);
   const [deletingLapNumber, setDeletingLapNumber] = useState<number | null>(null);
@@ -129,6 +135,8 @@ export function SessionDetailPage() {
     null,
   );
   const [lapFilter, setLapFilter] = useState<LapFilter>("all");
+  const [editingDisplayName, setEditingDisplayName] = useState(false);
+  const [displayNameDraft, setDisplayNameDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
@@ -139,7 +147,10 @@ export function SessionDetailPage() {
 
     try {
       const detail = await api.getSession(sessionId);
-      setSession(detail);
+      const resolvedDetail = applySessionDisplayNameOverride(detail);
+      setSession(resolvedDetail);
+      setDisplayNameDraft(resolvedDetail.display_name ?? "");
+      setEditingDisplayName(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load session");
     } finally {
@@ -160,6 +171,15 @@ export function SessionDetailPage() {
     () => session?.laps.filter((lap) => matchesLapFilter(lap, lapFilter)) ?? [],
     [lapFilter, session],
   );
+  const sessionTitle = session ? getSessionTitle(session) : "";
+
+  const openLapReview = (lapNumber: number) => {
+    if (!sessionId) {
+      return;
+    }
+
+    navigate(`/sessions/${sessionId}/laps/${lapNumber}`);
+  };
 
   const handleProcess = async () => {
     if (!sessionId) return;
@@ -179,6 +199,50 @@ export function SessionDetailPage() {
     } finally {
       setProcessing(false);
     }
+  };
+
+  const handleSaveDisplayName = async () => {
+    if (!sessionId) {
+      return;
+    }
+
+    const nextDisplayName = displayNameDraft.trim() || null;
+
+    setSavingDisplayName(true);
+    setError(null);
+    saveSessionDisplayNameOverride(sessionId, nextDisplayName);
+    setSession((current) =>
+      current
+        ? {
+            ...current,
+            display_name: nextDisplayName,
+          }
+        : current,
+    );
+    setDisplayNameDraft(nextDisplayName ?? "");
+    setEditingDisplayName(false);
+
+    try {
+      const updatedSession = await api.updateSession(sessionId, {
+        display_name: nextDisplayName,
+      });
+      const resolvedSession = applySessionDisplayNameOverride(updatedSession);
+      setSession(resolvedSession);
+      setDisplayNameDraft(resolvedSession.display_name ?? "");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Saved locally. Backend sync failed: ${err.message}`
+          : "Saved locally. Backend sync failed.",
+      );
+    } finally {
+      setSavingDisplayName(false);
+    }
+  };
+
+  const handleCancelDisplayName = () => {
+    setDisplayNameDraft(session?.display_name ?? "");
+    setEditingDisplayName(false);
   };
 
   const handleDeleteSession = async () => {
@@ -248,9 +312,61 @@ export function SessionDetailPage() {
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-3">
-                <h2 className="min-w-0 truncate text-3xl font-semibold tracking-tight text-text-primary">
-                  {session.session_id}
-                </h2>
+                {editingDisplayName ? (
+                  <div className="flex min-w-0 max-w-xl flex-1 flex-col gap-3">
+                    <input
+                      type="text"
+                      value={displayNameDraft}
+                      onChange={(event) => setDisplayNameDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleSaveDisplayName();
+                        } else if (event.key === "Escape") {
+                          event.preventDefault();
+                          handleCancelDisplayName();
+                        }
+                      }}
+                      placeholder="Session name"
+                      maxLength={80}
+                      className="h-11 w-full rounded-2xl border border-border/70 bg-surface-1/88 px-4 text-base font-medium text-text-primary outline-none transition-colors focus:border-border-strong"
+                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveDisplayName}
+                        disabled={savingDisplayName}
+                        className="motion-safe-color inline-flex h-9 items-center rounded-full border border-accent/24 bg-accent/12 px-4 text-sm font-medium text-accent hover:bg-accent/18 disabled:opacity-50 cursor-pointer"
+                      >
+                        {savingDisplayName ? "Saving..." : "Save Name"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCancelDisplayName}
+                        disabled={savingDisplayName}
+                        className="motion-safe-color inline-flex h-9 items-center rounded-full border border-border/70 bg-surface-2/84 px-4 text-sm font-medium text-text-secondary hover:bg-surface-3 hover:text-text-primary disabled:opacity-50 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <h2 className="min-w-0 truncate text-3xl font-semibold tracking-tight text-text-primary">
+                      {sessionTitle}
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDisplayNameDraft(session.display_name ?? "");
+                        setEditingDisplayName(true);
+                      }}
+                      className="motion-safe-color inline-flex h-9 items-center rounded-full border border-border/70 bg-surface-2/84 px-4 text-xs font-medium uppercase tracking-[0.14em] text-text-secondary hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer"
+                    >
+                      Rename
+                    </button>
+                  </>
+                )}
                 <StatusBadge processed={session.has_processed} />
                 {isLiveSession && (
                   <span className="inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-accent">
@@ -259,6 +375,11 @@ export function SessionDetailPage() {
                   </span>
                 )}
               </div>
+              {!editingDisplayName && session.display_name && (
+                <p className="mt-2 truncate font-mono text-xs text-text-muted">
+                  {session.session_id}
+                </p>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -371,77 +492,92 @@ export function SessionDetailPage() {
         />
       ) : (
         <div className="overflow-hidden rounded-3xl border border-border/70 bg-surface-1/85">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border/60 text-[11px] uppercase tracking-[0.16em] text-text-muted">
-                <th className="density-detail-table-cell p-3 text-left font-medium">Lap</th>
-                <th className="density-detail-table-cell p-3 text-left font-medium">Time</th>
-                <th className="density-detail-table-cell p-3 text-left font-medium">Valid</th>
-                <th className="density-detail-table-cell p-3 text-left font-medium">Data</th>
-                <th className="density-detail-table-cell p-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {filteredLaps.map((lap) => (
-                <tr
-                  key={lap.lap_number}
-                  className="border-b border-border/60 transition-colors hover:bg-surface-2/78"
-                >
-                  <td className="density-detail-table-cell p-3 font-medium text-text-primary">
-                    Lap {lap.lap_number}
-                  </td>
-                  <td className="density-detail-table-cell p-3 font-mono text-text-secondary">
-                    {formatTime(lap.lap_time_s)}
-                  </td>
-                  <td className="density-detail-table-cell p-3">
-                    {lap.is_valid === null ? (
-                      <span className="text-text-muted">--</span>
-                    ) : lap.is_valid ? (
-                      <span className="text-xs font-medium text-success">
-                        Valid
-                      </span>
-                    ) : (
-                      <span className="text-xs font-medium text-danger">
-                        Invalid
-                      </span>
-                    )}
-                  </td>
-                  <td className="density-detail-table-cell p-3 space-x-2">
-                    {lap.has_raw && (
-                      <span className="rounded-full border border-border/70 bg-surface-2/86 px-2.5 py-1 text-[11px] text-text-secondary">
-                        Raw
-                      </span>
-                    )}
-                    {lap.has_processed && (
-                      <span className="rounded-full bg-accent/10 px-2.5 py-1 text-[11px] text-accent">
-                        Processed
-                      </span>
-                    )}
-                  </td>
-                  <td className="density-detail-table-cell p-3 text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      <Link
-                        to={`/sessions/${session.session_id}/laps/${lap.lap_number}`}
-                        className="text-xs font-medium text-accent hover:underline"
-                      >
-                        Review
-                      </Link>
-                      <SplitDeleteButton
-                        confirming={confirmingLapDelete === lap.lap_number}
-                        busy={deletingLapNumber === lap.lap_number}
-                        idleLabel="Delete"
-                        busyLabel="..."
-                        onStart={() => setConfirmingLapDelete(lap.lap_number)}
-                        onConfirm={() => handleDeleteLap(lap.lap_number)}
-                        onCancel={() => setConfirmingLapDelete(null)}
-                        compact
-                      />
-                    </div>
-                  </td>
+          <div className="density-detail-table-shell overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/60 text-[11px] uppercase tracking-[0.16em] text-text-muted">
+                  <th className="density-detail-table-cell text-left font-medium">Lap</th>
+                  <th className="density-detail-table-cell text-left font-medium">Time</th>
+                  <th className="density-detail-table-cell text-left font-medium">Valid</th>
+                  <th className="density-detail-table-cell text-left font-medium">Data</th>
+                  <th className="density-detail-table-cell" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredLaps.map((lap) => (
+                  <tr
+                    key={lap.lap_number}
+                    tabIndex={0}
+                    role="link"
+                    aria-label={`Open Lap ${lap.lap_number} review`}
+                    onClick={() => openLapReview(lap.lap_number)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openLapReview(lap.lap_number);
+                      }
+                    }}
+                    className="cursor-pointer border-b border-border/60 transition-colors hover:bg-surface-2/78 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-[-2px]"
+                  >
+                    <td className="density-detail-table-cell font-medium text-text-primary">
+                      Lap {lap.lap_number}
+                    </td>
+                    <td className="density-detail-table-cell font-mono text-text-secondary">
+                      {formatTime(lap.lap_time_s)}
+                    </td>
+                    <td className="density-detail-table-cell">
+                      {lap.is_valid === null ? (
+                        <span className="text-text-muted">--</span>
+                      ) : lap.is_valid ? (
+                        <span className="text-xs font-medium text-success">
+                          Valid
+                        </span>
+                      ) : (
+                        <span className="text-xs font-medium text-danger">
+                          Invalid
+                        </span>
+                      )}
+                    </td>
+                    <td className="density-detail-table-cell space-x-2">
+                      {lap.has_raw && (
+                        <span className="rounded-full border border-border/70 bg-surface-2/86 px-2.5 py-1 text-[11px] text-text-secondary">
+                          Raw
+                        </span>
+                      )}
+                      {lap.has_processed && (
+                        <span className="rounded-full bg-accent/10 px-2.5 py-1 text-[11px] text-accent">
+                          Processed
+                        </span>
+                      )}
+                    </td>
+                    <td
+                      className="density-detail-table-cell text-right"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-end gap-3">
+                        <Link
+                          to={`/sessions/${session.session_id}/laps/${lap.lap_number}`}
+                          className="text-xs font-medium text-accent hover:underline"
+                        >
+                          Review
+                        </Link>
+                        <SplitDeleteButton
+                          confirming={confirmingLapDelete === lap.lap_number}
+                          busy={deletingLapNumber === lap.lap_number}
+                          idleLabel="Delete"
+                          busyLabel="..."
+                          onStart={() => setConfirmingLapDelete(lap.lap_number)}
+                          onConfirm={() => handleDeleteLap(lap.lap_number)}
+                          onCancel={() => setConfirmingLapDelete(null)}
+                          compact
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

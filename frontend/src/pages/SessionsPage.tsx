@@ -10,11 +10,13 @@ import {
 } from "../hooks/useCaptureController";
 import type { SessionSummary } from "../types";
 import {
+  applySessionDisplayNameOverrides,
   DEFAULT_SESSION_LIBRARY_QUERY,
   createSessionLibrarySearchParams,
   type SessionLibrarySort,
   type SessionLibraryStatusFilter,
   getSessionDateValue,
+  getSessionTitle,
   matchesSessionQuery,
   parseSessionLibraryQuery,
   sortSessionsForLibrary,
@@ -77,7 +79,7 @@ export function SessionsPage() {
 
     try {
       const result = await api.getSessions();
-      setSessions(result);
+      setSessions(applySessionDisplayNameOverrides(result));
       setSessionsError(null);
       setActionError(null);
     } catch (error) {
@@ -130,6 +132,13 @@ export function SessionsPage() {
     capture.status?.is_active && capture.status.session_id
       ? capture.status.session_id
       : null;
+  const activeSessionSummary = useMemo(
+    () =>
+      activeSessionId
+        ? sessions.find((session) => session.session_id === activeSessionId) ?? null
+        : null,
+    [activeSessionId, sessions],
+  );
   const captureSettingsId = "sessions-capture-settings";
 
   const filteredSessions = useMemo(() => {
@@ -197,7 +206,12 @@ export function SessionsPage() {
   };
 
   const isCaptureActive = capture.status?.is_active ?? false;
-  const liveSessionLabel = isCaptureActive ? capture.status?.session_id ?? "Idle" : "Idle";
+  const liveSessionLabel =
+    isCaptureActive && activeSessionSummary
+      ? getSessionTitle(activeSessionSummary)
+      : isCaptureActive
+        ? capture.status?.session_id ?? "Idle"
+        : "Idle";
   const liveLapCount = isCaptureActive ? capture.status?.laps_detected ?? 0 : 0;
 
   return (

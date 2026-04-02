@@ -147,6 +147,7 @@ class datacollector:
         self.created_at_utc = datetime.now(timezone.utc).isoformat()
         self.metadata = SessionMetadata(
             session_id=self.session_paths.session_id,
+            display_name=None,
             schema_version=SCHEMA_VERSION,
             sim=DEFAULT_SIM_NAME,
             created_at_utc=self.created_at_utc,

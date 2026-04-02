@@ -126,7 +126,7 @@ def _differentiate(series: pd.Series, delta_time_s: pd.Series) -> pd.Series:
     return derivative.fillna(0.0)
 
 
-def _build_processed_lap_dataframe_with_validation(
+def build_processed_lap_dataframe_with_validation(
     raw_df: pd.DataFrame,
     session_id: str = "",
     session_metadata: dict[str, object] | None = None,
@@ -233,7 +233,7 @@ def _build_processed_lap_dataframe_with_validation(
 
 
 def build_processed_lap_dataframe(raw_df: pd.DataFrame, session_id: str = "") -> pd.DataFrame:
-    processed_df, _ = _build_processed_lap_dataframe_with_validation(raw_df, session_id=session_id)
+    processed_df, _ = build_processed_lap_dataframe_with_validation(raw_df, session_id=session_id)
     return processed_df
 
 
@@ -249,7 +249,7 @@ def build_processed_lap_file(
     metadata = session_metadata if session_metadata is not None else _load_session_metadata(raw_path.parent)
     resolved_session_id = _resolve_session_id(session_id, raw_path, metadata)
     lap_number = _resolve_lap_number(raw_df, raw_path)
-    processed_df, validation_result = _build_processed_lap_dataframe_with_validation(
+    processed_df, validation_result = build_processed_lap_dataframe_with_validation(
         raw_df,
         session_id=resolved_session_id,
         session_metadata=metadata,
@@ -307,7 +307,7 @@ def process_session(raw_session_dir: str | Path, processed_session_dir: str | Pa
     for raw_lap_path in sorted(raw_dir.glob("lap_*.csv")):
         raw_df = pd.read_csv(raw_lap_path)
         lap_number = _resolve_lap_number(raw_df, raw_lap_path)
-        processed_df, validation_result = _build_processed_lap_dataframe_with_validation(
+        processed_df, validation_result = build_processed_lap_dataframe_with_validation(
             raw_df,
             session_id=session_id,
             session_metadata=session_metadata,

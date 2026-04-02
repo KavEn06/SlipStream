@@ -1,0 +1,279 @@
+from __future__ import annotations
+
+import json
+import shutil
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import pandas as pd
+
+from src.api.services import session_scanner
+from src.core.schemas import LAP_CLOSE_REASON_LAP_ROLLOVER, RAW_LAP_COLUMNS
+
+
+def build_raw_lap_dataframe(
+    sample_count: int = 25,
+    lap_number: int = 1,
+    start_timestamp_ms: int = 1000,
+    timestamp_step_ms: int = 50,
+    start_current_lap_s: float = 0.0,
+    current_lap_step_s: float = 0.25,
+) -> pd.DataFrame:
+    rows: list[dict[str, float | int]] = []
+    for index in range(sample_count):
+        rows.append(
+            {
+                "IsRaceOn": 1,
+                "TimestampMS": start_timestamp_ms + (index * timestamp_step_ms),
+                "EngineMaxRpm": 8000.0,
+                "EngineIdleRpm": 900.0,
+                "CurrentEngineRpm": 4200.0 + (index * 15.0),
+                "CarOrdinal": 12,
+                "PositionX": float(index * 3.0),
+                "PositionY": 0.0,
+                "PositionZ": float(index) * 0.2,
+                "Speed": 30.0 + (index * 0.75),
+                "Power": 150.0 + index,
+                "Torque": 220.0,
+                "Boost": 0.2,
+                "DistanceTraveled": float(index * 3.0),
+                "BestLap": 85.0,
+                "LastLap": 86.0,
+                "CurrentLap": start_current_lap_s + (index * current_lap_step_s),
+                "CurrentRaceTime": 50.0 + ((start_timestamp_ms + (index * timestamp_step_ms)) / 1000.0),
+                "LapNumber": lap_number,
+                "Accel": min(255, 160 + (index * 2)),
+                "Brake": max(0, 12 - index),
+                "Clutch": 0,
+                "HandBrake": 0,
+                "Gear": 3 if index < (sample_count // 2) else 4,
+                "Steer": max(-20, min(20, index - (sample_count // 2))),
+                "TrackOrdinal": 0,
+            }
+        )
+    return pd.DataFrame(rows, columns=RAW_LAP_COLUMNS)
+
+
+class SessionScannerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_root = Path(tempfile.mkdtemp())
+        self.raw_root = self.temp_root / "raw"
+        self.processed_root = self.temp_root / "processed"
+        self.raw_root.mkdir(parents=True, exist_ok=True)
+        self.processed_root.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.temp_root)
+
+    def test_raw_only_session_detail_uses_metadata_lap_time_and_leaves_validity_unknown(self) -> None:
+        session_id = "session_raw_only"
+        session_dir = self.raw_root / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        raw_df = build_raw_lap_dataframe()
+        raw_df.to_csv(session_dir / "lap_001.csv", index=False)
+        self._write_metadata(
+            session_dir,
+            track_circuit="Rio de Janeiro",
+            track_layout="Full Circuit",
+            track_location="Rio de Janeiro, Brazil",
+            first_timestamp_ms=int(raw_df["TimestampMS"].iloc[0]),
+            last_timestamp_ms=int(raw_df["TimestampMS"].iloc[-1]),
+        )
+
+        with self._patch_data_roots():
+            detail = session_scanner.get_session_detail(session_id)
+
+        self.assertIsNotNone(detail)
+        self.assertEqual(detail["track_layout"], "Full Circuit")
+        self.assertEqual(detail["track_location"], "Rio de Janeiro, Brazil")
+        self.assertFalse(detail["has_processed"])
+        self.assertEqual(len(detail["laps"]), 1)
+        self.assertAlmostEqual(detail["laps"][0]["lap_time_s"], 1.2, places=6)
+        self.assertIsNone(detail["laps"][0]["is_valid"])
+
+    def test_raw_only_session_detail_does_not_infer_invalidity_before_processing(self) -> None:
+        session_id = "session_raw_invalid"
+        session_dir = self.raw_root / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        raw_df = build_raw_lap_dataframe(start_current_lap_s=3.5)
+        raw_df.to_csv(session_dir / "lap_001.csv", index=False)
+        self._write_metadata(
+            session_dir,
+            track_circuit="Rio de Janeiro",
+            track_layout="Full Circuit",
+            track_location="Rio de Janeiro, Brazil",
+            first_timestamp_ms=int(raw_df["TimestampMS"].iloc[0]),
+            last_timestamp_ms=int(raw_df["TimestampMS"].iloc[-1]),
+        )
+
+        with self._patch_data_roots():
+            detail = session_scanner.get_session_detail(session_id)
+
+        self.assertIsNotNone(detail)
+        self.assertAlmostEqual(detail["laps"][0]["lap_time_s"], 1.2, places=6)
+        self.assertIsNone(detail["laps"][0]["is_valid"])
+
+    def test_update_session_metadata_persists_display_name_for_raw_and_processed(self) -> None:
+        session_id = "session_renameable"
+        raw_dir = self.raw_root / session_id
+        processed_dir = self.processed_root / session_id
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        processed_dir.mkdir(parents=True, exist_ok=True)
+
+        self._write_metadata(
+            raw_dir,
+            track_circuit="Suzuka Circuit",
+            track_layout="Grand Prix",
+            track_location="Suzuka, Japan",
+            first_timestamp_ms=1000,
+            last_timestamp_ms=2200,
+        )
+        self._write_metadata(
+            processed_dir,
+            track_circuit="Suzuka Circuit",
+            track_layout="Grand Prix",
+            track_location="Suzuka, Japan",
+            first_timestamp_ms=1000,
+            last_timestamp_ms=2200,
+        )
+
+        with self._patch_data_roots():
+            detail = session_scanner.update_session_metadata(
+                session_id,
+                display_name="Evening Suzuka Run",
+            )
+
+        self.assertIsNotNone(detail)
+        assert detail is not None
+        self.assertEqual(detail["display_name"], "Evening Suzuka Run")
+        self.assertEqual(
+            json.loads((raw_dir / "metadata.json").read_text(encoding="utf-8"))["display_name"],
+            "Evening Suzuka Run",
+        )
+        self.assertEqual(
+            json.loads((processed_dir / "metadata.json").read_text(encoding="utf-8"))["display_name"],
+            "Evening Suzuka Run",
+        )
+
+        with self._patch_data_roots():
+            cleared_detail = session_scanner.update_session_metadata(
+                session_id,
+                display_name="   ",
+            )
+
+        self.assertIsNotNone(cleared_detail)
+        assert cleared_detail is not None
+        self.assertIsNone(cleared_detail["display_name"])
+        self.assertNotIn(
+            "display_name",
+            json.loads((raw_dir / "metadata.json").read_text(encoding="utf-8")),
+        )
+        self.assertNotIn(
+            "display_name",
+            json.loads((processed_dir / "metadata.json").read_text(encoding="utf-8")),
+        )
+
+    def test_processed_session_detail_uses_metadata_lap_time_before_csv_summary(self) -> None:
+        session_id = "session_processed_summary"
+        processed_dir = self.processed_root / session_id
+        processed_dir.mkdir(parents=True, exist_ok=True)
+
+        pd.DataFrame(
+            {
+                "LapTimeS": [float("nan"), 19.876],
+                "LapIsValid": [float("nan"), 1],
+            }
+        ).to_csv(processed_dir / "lap_001.csv", index=False)
+        self._write_metadata(
+            processed_dir,
+            track_circuit="Silverstone",
+            track_layout="Grand Prix",
+            track_location="Silverstone, UK",
+            first_timestamp_ms=1000,
+            last_timestamp_ms=82234,
+        )
+
+        with self._patch_data_roots():
+            detail = session_scanner.get_session_detail(session_id)
+
+        self.assertIsNotNone(detail)
+        self.assertEqual(len(detail["laps"]), 1)
+        self.assertAlmostEqual(detail["laps"][0]["lap_time_s"], 81.234, places=6)
+        self.assertTrue(detail["laps"][0]["is_valid"])
+
+    def test_session_detail_falls_back_to_metadata_lap_time_when_summary_is_missing(self) -> None:
+        session_id = "session_metadata_fallback"
+        processed_dir = self.processed_root / session_id
+        processed_dir.mkdir(parents=True, exist_ok=True)
+
+        pd.DataFrame(
+            {
+                "LapTimeS": [float("nan"), float("nan")],
+                "LapIsValid": [1, 1],
+            }
+        ).to_csv(processed_dir / "lap_001.csv", index=False)
+        self._write_metadata(
+            processed_dir,
+            track_circuit="Silverstone",
+            track_layout="Grand Prix",
+            track_location="Silverstone, UK",
+            first_timestamp_ms=1000,
+            last_timestamp_ms=83123,
+        )
+
+        with self._patch_data_roots():
+            detail = session_scanner.get_session_detail(session_id)
+
+        self.assertIsNotNone(detail)
+        self.assertEqual(len(detail["laps"]), 1)
+        self.assertAlmostEqual(detail["laps"][0]["lap_time_s"], 82.123, places=6)
+
+    def _write_metadata(
+        self,
+        session_dir: Path,
+        *,
+        track_circuit: str,
+        track_layout: str,
+        track_location: str,
+        first_timestamp_ms: int,
+        last_timestamp_ms: int,
+    ) -> None:
+        metadata = {
+            "session_id": session_dir.name,
+            "schema_version": "test-schema",
+            "sim": "Forza Motorsport",
+            "created_at_utc": "2026-04-01T00:00:00+00:00",
+            "capture_ip": "127.0.0.1",
+            "capture_port": 5300,
+            "car_ordinal": 12,
+            "track_ordinal": 0,
+            "track_circuit": track_circuit,
+            "track_layout": track_layout,
+            "track_location": track_location,
+            "track_length_m": 4660.0,
+            "total_laps": 1,
+            "lap_index": {
+                "1": {
+                    "close_reason": LAP_CLOSE_REASON_LAP_ROLLOVER,
+                    "first_timestamp_ms": first_timestamp_ms,
+                    "last_timestamp_ms": last_timestamp_ms,
+                }
+            },
+            "notes": "",
+        }
+        (session_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+    def _patch_data_roots(self):
+        return patch.multiple(
+            session_scanner,
+            RAW_DATA_ROOT=self.raw_root,
+            PROCESSED_DATA_ROOT=self.processed_root,
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

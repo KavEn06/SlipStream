@@ -6,6 +6,7 @@ import type {
   ProcessResponse,
   SessionDetail,
   SessionSummary,
+  SessionUpdateRequest,
 } from "../types";
 
 const API_BASE = "/api";
@@ -35,6 +36,13 @@ export const api = {
 
   processSession: (id: string) =>
     fetchJson<ProcessResponse>(`/sessions/${id}/process`, { method: "POST" }),
+
+  updateSession: (id: string, body: SessionUpdateRequest) =>
+    fetchJson<SessionDetail>(`/sessions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
 
   deleteSession: (id: string) =>
     fetchJson<DeleteResponse>(`/sessions/${id}`, { method: "DELETE" }),

@@ -1,5 +1,6 @@
 export interface SessionSummary {
   session_id: string;
+  display_name: string | null;
   created_at_utc: string | null;
   track_circuit: string | null;
   track_layout: string | null;
@@ -56,4 +57,8 @@ export interface ProcessResponse {
 
 export interface DeleteResponse {
   message: string;
+}
+
+export interface SessionUpdateRequest {
+  display_name: string | null;
 }

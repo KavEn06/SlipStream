@@ -157,6 +157,7 @@ REFERENCE_PATH_COLUMNS = [
 @dataclass(frozen=True)
 class SessionMetadata:
     session_id: str
+    display_name: str | None
     schema_version: str
     sim: str
     created_at_utc: str

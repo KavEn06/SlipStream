@@ -10,13 +10,15 @@ import {
 } from "../hooks/useCaptureController";
 import type { SessionDetail, SessionSummary } from "../types";
 import {
+  applySessionDisplayNameOverride,
+  applySessionDisplayNameOverrides,
   deriveDashboardKpis,
   deriveFavoriteCar,
   deriveTrackBreakdown,
   formatSessionDateLabel,
-  formatSessionTimestamp,
   getRecentSessions,
   getSessionCarLabel,
+  getSessionTitle,
   getSessionVehicleTrackLabel,
 } from "../utils/sessions";
 
@@ -69,7 +71,7 @@ export function HomePage() {
 
     try {
       const result = await api.getSessions();
-      setSessions(result);
+      setSessions(applySessionDisplayNameOverrides(result));
       setSessionsError(null);
     } catch (err) {
       setSessionsError(
@@ -117,7 +119,7 @@ export function HomePage() {
       try {
         const result = await api.getSession(activeSessionId);
         if (!cancelled) {
-          setActiveSession(result);
+          setActiveSession(applySessionDisplayNameOverride(result));
         }
       } catch {
         if (!cancelled) {
@@ -167,7 +169,14 @@ export function HomePage() {
     car_ordinal: activeCarOrdinal ?? null,
     track_circuit: heroTrack,
   });
-  const liveSessionLabel = isActive ? capture.status?.session_id ?? "Idle" : "Idle";
+  const liveSessionLabel =
+    isActive && activeSession
+      ? getSessionTitle(activeSession)
+      : isActive && activeSessionSummary
+        ? getSessionTitle(activeSessionSummary)
+      : isActive
+        ? capture.status?.session_id ?? "Idle"
+        : "Idle";
   const liveLapCount = isActive ? capture.status?.laps_detected ?? 0 : 0;
   const captureSettingsId = "home-capture-settings";
 
@@ -219,8 +228,8 @@ export function HomePage() {
             className="density-home-list-row flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-surface-2/72 px-4 py-4 transition-colors hover:bg-surface-3/82 last:border-b-0"
           >
             <div className="min-w-0">
-              <p className="font-mono text-sm font-medium text-text-primary">
-                {formatSessionTimestamp(session.session_id)}
+              <p className="text-sm font-medium text-text-primary">
+                {getSessionTitle(session)}
               </p>
               <p className="mt-1 truncate text-sm text-text-secondary">
                 {getSessionVehicleTrackLabel(session)}
@@ -271,7 +280,7 @@ export function HomePage() {
                     <p className="text-[10px] uppercase tracking-[0.22em] text-text-muted">
                       Current Session
                     </p>
-                    <p className="mt-2 truncate font-mono text-sm text-text-primary">
+                    <p className="mt-2 truncate text-sm text-text-primary">
                       {liveSessionLabel}
                     </p>
                   </div>

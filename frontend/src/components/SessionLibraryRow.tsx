@@ -4,6 +4,7 @@ import {
   formatSessionDateLabel,
   formatSessionTimestamp,
   getSessionTrackName,
+  getSessionTitle,
   getSessionVehicleTrackLabel,
 } from "../utils/sessions";
 import { StatusBadge } from "./StatusBadge";
@@ -29,6 +30,9 @@ export function SessionLibraryRow({
     session.track_layout &&
     session.track_layout.trim().length > 0 &&
     session.track_layout !== getSessionTrackName(session);
+  const sessionTitle = getSessionTitle(session);
+  const showTimestampSubtitle =
+    Boolean(session.display_name && session.display_name.trim().length > 0);
 
   return (
     <div
@@ -46,10 +50,16 @@ export function SessionLibraryRow({
               Live
             </span>
           )}
-          <p className="font-mono text-sm font-medium text-text-primary transition-colors group-hover:text-accent">
-            {formatSessionTimestamp(session.session_id)}
+          <p className="truncate text-sm font-medium text-text-primary transition-colors group-hover:text-accent">
+            {sessionTitle}
           </p>
         </div>
+
+        {showTimestampSubtitle && (
+          <p className="mt-1 font-mono text-xs text-text-muted">
+            {formatSessionTimestamp(session.session_id)}
+          </p>
+        )}
 
         <p className="mt-1 truncate text-sm text-text-secondary">
           {getSessionVehicleTrackLabel(session)}
@@ -93,7 +103,7 @@ export function SessionLibraryRow({
         <Link
           to={sessionPath}
           className="density-library-icon-action inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-surface-1/82 text-text-secondary transition-colors hover:border-accent/20 hover:bg-accent/10 hover:text-text-primary"
-          aria-label={`Open ${session.session_id}`}
+          aria-label={`Open ${sessionTitle}`}
         >
           <svg
             className="h-4 w-4"

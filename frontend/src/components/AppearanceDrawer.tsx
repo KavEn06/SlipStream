@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import {
   useAppearance,
   type AccentName,
@@ -249,133 +250,140 @@ export function AppearanceDrawer({
     };
   }, [open, onClose, returnFocusRef]);
 
-  return (
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
     <div
-      className="pointer-events-none fixed inset-y-0 left-20 right-0 z-40 overflow-hidden"
+      className="pointer-events-none fixed inset-0 z-[140]"
       aria-hidden={!open}
     >
-      <button
-        type="button"
-        aria-label="Close appearance drawer"
-        onClick={onClose}
-        className={`motion-safe-fade absolute inset-0 bg-surface-0/55 backdrop-blur-sm ${
-          open ? "opacity-100" : "opacity-0"
-        } ${
-          open ? "pointer-events-auto" : "pointer-events-none"
-        }`}
-      />
+      <div className="absolute inset-y-0 left-20 right-0 isolate overflow-hidden">
+        <button
+          type="button"
+          aria-label="Close appearance drawer"
+          onClick={onClose}
+          className={`motion-safe-fade absolute inset-0 z-0 bg-surface-0/55 backdrop-blur-sm ${
+            open ? "opacity-100" : "opacity-0"
+          } ${
+            open ? "pointer-events-auto" : "pointer-events-none"
+          }`}
+        />
 
-      <aside
-        ref={panelRef}
-        id="appearance-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className={`density-drawer-panel themed-shadow-lg motion-safe-slide absolute left-0 top-0 flex h-full w-full max-w-md flex-col border-r border-border/70 bg-surface-1/92 px-5 py-6 backdrop-blur-xl sm:px-6 ${
-          open ? "translate-x-0" : "-translate-x-full"
-        } ${
-          open ? "pointer-events-auto" : "pointer-events-none"
-        }`}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.22em] text-text-muted">
-              Preferences
-            </p>
-            <h2
-              id={titleId}
-              className="mt-2 text-2xl font-semibold tracking-tight text-text-primary"
+        <aside
+          ref={panelRef}
+          id="appearance-drawer"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className={`density-drawer-panel themed-shadow-lg motion-safe-slide absolute left-0 top-0 z-10 flex h-full w-full max-w-md flex-col border-r border-border/70 bg-surface-1/92 px-5 py-6 backdrop-blur-xl isolate transform-gpu [backface-visibility:hidden] sm:px-6 ${
+            open ? "translate-x-0" : "-translate-x-full"
+          } ${
+            open ? "pointer-events-auto" : "pointer-events-none"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.22em] text-text-muted">
+                Preferences
+              </p>
+              <h2
+                id={titleId}
+                className="mt-2 text-2xl font-semibold tracking-tight text-text-primary"
+              >
+                Appearance
+              </h2>
+            </div>
+
+            <button
+              ref={closeButtonRef}
+              type="button"
+              onClick={onClose}
+              className="motion-safe-color inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-surface-2/90 text-text-secondary hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer"
+              aria-label="Close appearance drawer"
             >
-              Appearance
-            </h2>
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.8}
+                  d="M6 6l12 12M18 6 6 18"
+                />
+              </svg>
+            </button>
           </div>
 
-          <button
-            ref={closeButtonRef}
-            type="button"
-            onClick={onClose}
-            className="motion-safe-color inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-surface-2/90 text-text-secondary hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer"
-            aria-label="Close appearance drawer"
-          >
-            <svg
-              className="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.8}
-                d="M6 6l12 12M18 6 6 18"
-              />
-            </svg>
-          </button>
-        </div>
+          <div className="density-drawer-body mt-8 flex-1 overflow-y-auto pr-1">
+            <PreferenceSection
+              name="theme"
+              title="Theme"
+              value={theme}
+              options={THEME_OPTIONS}
+              onChange={setTheme}
+              footer={
+                <div className="rounded-3xl border border-border/70 bg-surface-2/72 px-4 py-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex min-w-0 items-center">
+                      <p className="text-sm font-medium text-text-primary">
+                        Accent
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {ACCENT_OPTIONS.map((option, index) => {
+                        const selected = option.value === accent;
 
-        <div className="density-drawer-body mt-8 flex-1 overflow-y-auto pr-1">
-          <PreferenceSection
-            name="theme"
-            title="Theme"
-            value={theme}
-            options={THEME_OPTIONS}
-            onChange={setTheme}
-            footer={
-              <div className="rounded-3xl border border-border/70 bg-surface-2/72 px-4 py-3">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex min-w-0 items-center">
-                    <p className="text-sm font-medium text-text-primary">
-                      Accent
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {ACCENT_OPTIONS.map((option, index) => {
-                      const selected = option.value === accent;
-
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => setAccent(option.value)}
-                          className={`motion-safe-color inline-flex h-9 w-9 items-center justify-center rounded-lg border cursor-pointer ${
-                            selected
-                              ? "border-accent bg-surface-1 text-text-primary"
-                              : "border-border/70 bg-surface-1/80 text-text-secondary hover:border-border-strong hover:bg-surface-3"
-                          }`}
-                          aria-label={`Set accent preset ${index + 1}`}
-                          aria-pressed={selected}
-                        >
-                          <span
-                            className="h-5 w-5 rounded-md border border-border/70"
-                            style={{ backgroundColor: option.swatch }}
-                            aria-hidden="true"
-                          />
-                        </button>
-                      );
-                    })}
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setAccent(option.value)}
+                            className={`motion-safe-color inline-flex h-9 w-9 items-center justify-center rounded-lg border cursor-pointer ${
+                              selected
+                                ? "border-accent bg-surface-1 text-text-primary"
+                                : "border-border/70 bg-surface-1/80 text-text-secondary hover:border-border-strong hover:bg-surface-3"
+                            }`}
+                            aria-label={`Set accent preset ${index + 1}`}
+                            aria-pressed={selected}
+                          >
+                            <span
+                              className="h-5 w-5 rounded-md border border-border/70"
+                              style={{ backgroundColor: option.swatch }}
+                              aria-hidden="true"
+                            />
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
-              </div>
-            }
-          />
+              }
+            />
 
-          <PreferenceSection
-            name="density"
-            title="Density"
-            value={density}
-            options={DENSITY_OPTIONS}
-            onChange={setDensity}
-          />
+            <PreferenceSection
+              name="density"
+              title="Density"
+              value={density}
+              options={DENSITY_OPTIONS}
+              onChange={setDensity}
+            />
 
-          <PreferenceSection
-            name="motion"
-            title="Motion"
-            value={motion}
-            options={MOTION_OPTIONS}
-            onChange={setMotion}
-          />
-        </div>
-      </aside>
-    </div>
+            <PreferenceSection
+              name="motion"
+              title="Motion"
+              value={motion}
+              options={MOTION_OPTIONS}
+              onChange={setMotion}
+            />
+          </div>
+        </aside>
+      </div>
+    </div>,
+    document.body,
   );
 }

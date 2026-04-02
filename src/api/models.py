@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 class SessionSummary(BaseModel):
     session_id: str
+    display_name: str | None = None
     created_at_utc: str | None = None
     track_circuit: str | None = None
     track_layout: str | None = None
@@ -24,6 +25,7 @@ class LapSummary(BaseModel):
 
 class SessionDetail(BaseModel):
     session_id: str
+    display_name: str | None = None
     created_at_utc: str | None = None
     sim: str | None = None
     track_circuit: str | None = None
@@ -69,3 +71,7 @@ class ProcessResponse(BaseModel):
 
 class DeleteResponse(BaseModel):
     message: str
+
+
+class SessionUpdateRequest(BaseModel):
+    display_name: str | None = None

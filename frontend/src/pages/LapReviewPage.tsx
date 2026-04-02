@@ -127,10 +127,15 @@ export function LapReviewPage() {
     sessionId: string;
     lapNumber: string;
   }>();
-  const [requestedDataType, setRequestedDataType] =
-    useState<LapDataType>("processed");
-  const [resolvedDataType, setResolvedDataType] =
-    useState<LapDataType>("processed");
+  const [sessionHasProcessed, setSessionHasProcessed] = useState<boolean | null>(
+    null,
+  );
+  const [requestedDataType, setRequestedDataType] = useState<LapDataType | null>(
+    null,
+  );
+  const [resolvedDataType, setResolvedDataType] = useState<LapDataType | null>(
+    null,
+  );
   const [lapData, setLapData] = useState<LapData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,6 +148,49 @@ export function LapReviewPage() {
 
   useEffect(() => {
     if (!canLoad || !sessionId) {
+      setSessionHasProcessed(null);
+      setRequestedDataType(null);
+      setResolvedDataType(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSessionPreference = async () => {
+      try {
+        const session = await api.getSession(sessionId);
+
+        if (cancelled) {
+          return;
+        }
+
+        const initialDataType: LapDataType = session.has_processed
+          ? "processed"
+          : "raw";
+
+        setSessionHasProcessed(session.has_processed);
+        setRequestedDataType(initialDataType);
+        setResolvedDataType(initialDataType);
+      } catch {
+        if (cancelled) {
+          return;
+        }
+
+        setSessionHasProcessed(null);
+        setRequestedDataType("processed");
+        setResolvedDataType("processed");
+      }
+    };
+
+    void loadSessionPreference();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canLoad, sessionId]);
+
+  useEffect(() => {
+    if (!canLoad || !sessionId || !requestedDataType) {
       return;
     }
 
@@ -197,6 +245,7 @@ export function LapReviewPage() {
   const firstRecord = records[0];
   const lastRecord = records.length > 0 ? records[records.length - 1] : undefined;
   const isProcessed = resolvedDataType === "processed";
+  const processedUnavailable = sessionHasProcessed === false;
   const fallbackToRaw =
     !loading &&
     requestedDataType === "processed" &&
@@ -214,12 +263,19 @@ export function LapReviewPage() {
     validFlag === undefined ? null : validFlag > 0;
 
   const sourceBadgeTone =
-    resolvedDataType === "processed" ? "accent" : "warning";
-  const sourceBadgeLabel = fallbackToRaw
-    ? "Raw Fallback"
-    : resolvedDataType === "processed"
-      ? "Processed"
-      : "Raw";
+    resolvedDataType === null
+      ? "neutral"
+      : resolvedDataType === "processed"
+        ? "accent"
+        : "warning";
+  const sourceBadgeLabel =
+    resolvedDataType === null
+      ? "Loading"
+      : fallbackToRaw
+        ? "Raw Fallback"
+        : resolvedDataType === "processed"
+          ? "Processed"
+          : "Raw";
 
   const xKey = isProcessed ? "NormalizedDistance" : "CurrentLap";
   const chartConfigs = useMemo(
@@ -252,6 +308,18 @@ export function LapReviewPage() {
   const visibleMiddleCharts = (["throttle", "brake"] as ChartKey[]).filter(
     (key) => visibleCharts[key],
   );
+
+  const selectDataType = (value: LapDataType) => {
+    if (loading || !requestedDataType) {
+      return;
+    }
+
+    if (value === "processed" && processedUnavailable) {
+      return;
+    }
+
+    setRequestedDataType(value);
+  };
 
   const toggleChartVisibility = (key: ChartKey) => {
     setVisibleCharts((current) => {
@@ -349,22 +417,33 @@ export function LapReviewPage() {
               />
               {(["processed", "raw"] as const).map((value) => {
                 const active = requestedDataType === value;
+                const unavailable = value === "processed" && processedUnavailable;
+                const disabled = loading || requestedDataType === null;
 
                 return (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setRequestedDataType(value)}
-                    className={`motion-safe-color relative z-10 inline-flex h-9 items-center justify-center rounded-full px-4 text-sm font-medium capitalize cursor-pointer ${
-                      active
-                        ? "text-accent"
-                        : "text-text-muted hover:text-text-primary"
-                    }`}
-                    aria-pressed={active}
-                    disabled={loading}
-                  >
-                    {value}
-                  </button>
+                  <div key={value} className="group relative z-10 h-9">
+                    <button
+                      type="button"
+                      onClick={() => selectDataType(value)}
+                      className={`motion-safe-color relative flex h-full w-full items-center justify-center rounded-full px-4 text-sm font-medium capitalize ${
+                        active
+                          ? "text-accent"
+                          : unavailable
+                            ? "text-text-subtle"
+                            : "cursor-pointer text-text-muted hover:text-text-primary"
+                      }`}
+                      aria-pressed={active}
+                      aria-disabled={unavailable || disabled}
+                      disabled={disabled}
+                    >
+                      {value}
+                    </button>
+                    {unavailable && (
+                      <div className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-border/70 bg-surface-1/96 px-3 py-1.5 text-[11px] font-medium text-text-secondary opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                        Process the session
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
