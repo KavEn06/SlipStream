@@ -7,6 +7,9 @@ import type { LapData } from "../types";
 
 type LapDataType = "processed" | "raw";
 type ChartKey = "speed" | "throttle" | "brake" | "steering";
+type ChartValueFormatter = (
+  value: number | string | readonly (number | string)[] | undefined,
+) => string;
 
 const DEFAULT_VISIBLE_CHARTS: Record<ChartKey, boolean> = {
   speed: true,
@@ -16,6 +19,7 @@ const DEFAULT_VISIBLE_CHARTS: Record<ChartKey, boolean> = {
 };
 
 const CHART_ORDER: ChartKey[] = ["speed", "throttle", "brake", "steering"];
+const LAP_REVIEW_MAX_POINTS = 1000;
 
 function formatLapTime(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined || Number.isNaN(seconds)) {
@@ -43,6 +47,88 @@ function getNumericValue(
   }
 
   return undefined;
+}
+
+function formatDisplayNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    return String(value);
+  }
+
+  if (value === 0) {
+    return "0";
+  }
+
+  return Number.parseFloat(value.toPrecision(3)).toString();
+}
+
+function formatDurationValue(seconds: number, includeMilliseconds: boolean): string {
+  if (!Number.isFinite(seconds)) {
+    return String(seconds);
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds - minutes * 60;
+
+  if (includeMilliseconds) {
+    return `${minutes}:${remainingSeconds.toFixed(3).padStart(6, "0")}`;
+  }
+
+  return `${minutes}:${Math.floor(remainingSeconds).toString().padStart(2, "0")}`;
+}
+
+function parseDurationInput(
+  value: number | string | readonly (number | string)[] | undefined,
+): number | null {
+  if (value === undefined || Array.isArray(value)) {
+    return null;
+  }
+
+  const numeric =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN;
+
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+
+  return numeric;
+}
+
+function formatDurationTooltipValue(
+  value: number | string | readonly (number | string)[] | undefined,
+): string {
+  const numeric = parseDurationInput(value);
+  return numeric === null ? String(value ?? "") : formatDurationValue(numeric, true);
+}
+
+function formatDurationTickValue(value: number | string): string {
+  const numeric = parseDurationInput(value);
+  return numeric === null ? String(value) : formatDurationValue(numeric, false);
+}
+
+function formatPercentageValue(
+  value: number | string | readonly (number | string)[] | undefined,
+  maxValue: number,
+): string {
+  if (value === undefined || Array.isArray(value)) {
+    return "";
+  }
+
+  const numeric =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : Number.NaN;
+
+  if (!Number.isFinite(numeric)) {
+    return String(value);
+  }
+
+  return `${formatDisplayNumber((numeric / maxValue) * 100)}%`;
 }
 
 function SummaryStat({
@@ -206,13 +292,22 @@ export function LapReviewPage() {
 
         if (requestedDataType === "processed") {
           try {
-            result = await api.getLap(sessionId, parsedLapNumber, "processed");
+            result = await api.getLap(sessionId, parsedLapNumber, "processed", {
+              view: "review",
+              maxPoints: LAP_REVIEW_MAX_POINTS,
+            });
           } catch {
-            result = await api.getLap(sessionId, parsedLapNumber, "raw");
+            result = await api.getLap(sessionId, parsedLapNumber, "raw", {
+              view: "review",
+              maxPoints: LAP_REVIEW_MAX_POINTS,
+            });
             nextResolved = "raw";
           }
         } else {
-          result = await api.getLap(sessionId, parsedLapNumber, "raw");
+          result = await api.getLap(sessionId, parsedLapNumber, "raw", {
+            view: "review",
+            maxPoints: LAP_REVIEW_MAX_POINTS,
+          });
         }
 
         if (!cancelled) {
@@ -251,16 +346,21 @@ export function LapReviewPage() {
     requestedDataType === "processed" &&
     resolvedDataType === "raw";
 
-  const lapTimeS = isProcessed
-    ? getNumericValue(firstRecord, "LapTimeS") ??
-      getNumericValue(lastRecord, "LapTimeS")
-    : getNumericValue(lastRecord, "CurrentLap") ??
-      getNumericValue(lastRecord, "LapTimeS");
-  const validFlag =
-    getNumericValue(firstRecord, "LapIsValid") ??
-    getNumericValue(lastRecord, "LapIsValid");
+  const lapTimeS =
+    lapData?.summary?.lap_time_s ??
+    (isProcessed
+      ? getNumericValue(firstRecord, "LapTimeS") ??
+        getNumericValue(lastRecord, "LapTimeS")
+      : getNumericValue(lastRecord, "CurrentLap") ??
+        getNumericValue(lastRecord, "LapTimeS"));
   const lapIsValid =
-    validFlag === undefined ? null : validFlag > 0;
+    lapData?.summary?.lap_is_valid ??
+    (() => {
+      const validFlag =
+        getNumericValue(firstRecord, "LapIsValid") ??
+        getNumericValue(lastRecord, "LapIsValid");
+      return validFlag === undefined ? null : validFlag > 0;
+    })();
 
   const sourceBadgeTone =
     resolvedDataType === null
@@ -277,23 +377,36 @@ export function LapReviewPage() {
           ? "Processed"
           : "Raw";
 
-  const xKey = isProcessed ? "NormalizedDistance" : "CurrentLap";
+  const xKey = lapData?.sampling.x_key ?? (isProcessed ? "ElapsedTimeS" : "CurrentLap");
+  const usesSecondsXAxis = xKey === "CurrentLap" || xKey === "ElapsedTimeS";
   const chartConfigs = useMemo(
-    () => ({
+    (): Record<
+      ChartKey,
+      {
+        label: string;
+        yKey: string;
+        color: string;
+        yValueFormatter?: ChartValueFormatter;
+      }
+    > => ({
       speed: {
         label: isProcessed ? "Speed (km/h)" : "Speed (m/s)",
         yKey: isProcessed ? "SpeedKph" : "Speed",
         color: "var(--app-chart-speed)",
       },
       throttle: {
-        label: isProcessed ? "Throttle (0-1)" : "Throttle (0-255)",
+        label: "Throttle (%)",
         yKey: isProcessed ? "Throttle" : "Accel",
         color: "var(--app-chart-throttle)",
+        yValueFormatter: (value: number | string | readonly (number | string)[] | undefined) =>
+          formatPercentageValue(value, isProcessed ? 1 : 255),
       },
       brake: {
-        label: isProcessed ? "Brake (0-1)" : "Brake (0-255)",
+        label: "Brake (%)",
         yKey: "Brake",
         color: "var(--app-chart-brake)",
+        yValueFormatter: (value: number | string | readonly (number | string)[] | undefined) =>
+          formatPercentageValue(value, isProcessed ? 1 : 255),
       },
       steering: {
         label: "Steering",
@@ -344,6 +457,9 @@ export function LapReviewPage() {
         yKey={config.yKey}
         label={config.label}
         color={config.color}
+        xTickFormatter={usesSecondsXAxis ? formatDurationTickValue : undefined}
+        xValueFormatter={usesSecondsXAxis ? formatDurationTooltipValue : undefined}
+        yValueFormatter={config.yValueFormatter}
         syncId="lap-review"
         height={height}
         className={className}
@@ -411,7 +527,7 @@ export function LapReviewPage() {
                   width: "calc(50% - 0.25rem)",
                   transform:
                     requestedDataType === "raw"
-                      ? "translateX(calc(100% + 0.25rem))"
+                      ? "translateX(100%)"
                       : "translateX(0)",
                 }}
               />

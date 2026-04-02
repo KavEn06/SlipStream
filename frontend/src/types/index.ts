@@ -33,6 +33,17 @@ export interface LapData {
   data_type: string;
   columns: string[];
   records: Record<string, number | string>[];
+  summary: {
+    lap_time_s: number | null;
+    lap_is_valid: boolean | null;
+  };
+  sampling: {
+    view: string;
+    source_rows: number;
+    returned_rows: number;
+    max_points: number | null;
+    x_key: string;
+  };
 }
 
 export interface CaptureStatus {

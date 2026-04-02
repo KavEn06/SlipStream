@@ -5,9 +5,21 @@ import re
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from src.core.config import PROCESSED_DATA_ROOT, RAW_DATA_ROOT
+
+LAP_VIEW_FULL = "full"
+LAP_VIEW_REVIEW = "review"
+REVIEW_X_KEYS = {
+    "processed": "ElapsedTimeS",
+    "raw": "CurrentLap",
+}
+REVIEW_COLUMNS = {
+    "processed": ["ElapsedTimeS", "SpeedKph", "Throttle", "Brake", "Steering"],
+    "raw": ["CurrentLap", "Speed", "Accel", "Brake", "Steer"],
+}
 
 
 def list_sessions() -> list[dict]:
@@ -118,7 +130,14 @@ def update_session_metadata(session_id: str, *, display_name: str | None) -> dic
     return get_session_detail(session_id)
 
 
-def get_lap_data(session_id: str, lap_number: int, data_type: str) -> dict | None:
+def get_lap_data(
+    session_id: str,
+    lap_number: int,
+    data_type: str,
+    *,
+    view: str = LAP_VIEW_FULL,
+    max_points: int = 1000,
+) -> dict | None:
     base_dir = RAW_DATA_ROOT if data_type == "raw" else PROCESSED_DATA_ROOT
     lap_file = base_dir / session_id / f"lap_{lap_number:03d}.csv"
 
@@ -126,12 +145,32 @@ def get_lap_data(session_id: str, lap_number: int, data_type: str) -> dict | Non
         return None
 
     df = pd.read_csv(lap_file)
+    summary = _build_lap_data_summary(df, data_type)
+    x_key = REVIEW_X_KEYS[data_type]
+
+    if view == LAP_VIEW_REVIEW:
+        result_df = _build_review_lap_dataframe(df, data_type, max_points)
+        returned_columns = list(result_df.columns)
+        returned_max_points: int | None = max_points
+    else:
+        result_df = df
+        returned_columns = list(df.columns)
+        returned_max_points = None
+
     return {
         "session_id": session_id,
         "lap_number": lap_number,
         "data_type": data_type,
-        "columns": list(df.columns),
-        "records": df.to_dict(orient="records"),
+        "columns": returned_columns,
+        "records": result_df.to_dict(orient="records"),
+        "summary": summary,
+        "sampling": {
+            "view": view,
+            "source_rows": int(len(df)),
+            "returned_rows": int(len(result_df)),
+            "max_points": returned_max_points,
+            "x_key": x_key,
+        },
     }
 
 
@@ -206,12 +245,83 @@ def _read_processed_lap_summary(path: Path) -> dict[str, float | bool | None]:
     }
 
 
+def _build_lap_data_summary(df: pd.DataFrame, data_type: str) -> dict[str, float | bool | None]:
+    if data_type == "processed":
+        lap_time_s = _read_series_last_numeric_value(df, "LapTimeS")
+        lap_is_valid = _read_series_last_bool_value(df, "LapIsValid")
+    else:
+        lap_time_s = _read_series_last_numeric_value(df, "CurrentLap")
+        if lap_time_s is None:
+            lap_time_s = _read_series_last_numeric_value(df, "LapTimeS")
+        lap_is_valid = _read_series_last_bool_value(df, "LapIsValid")
+
+    return {
+        "lap_time_s": lap_time_s,
+        "lap_is_valid": lap_is_valid,
+    }
+
+
+def _build_review_lap_dataframe(df: pd.DataFrame, data_type: str, max_points: int) -> pd.DataFrame:
+    selected_columns = [column for column in REVIEW_COLUMNS[data_type] if column in df.columns]
+    if not selected_columns:
+        return df.iloc[0:0].copy()
+
+    review_df = df[selected_columns].copy()
+    x_key = REVIEW_X_KEYS[data_type]
+    if x_key not in review_df.columns or review_df.empty:
+        return review_df.reset_index(drop=True)
+
+    review_df["_review_x"] = pd.to_numeric(review_df[x_key], errors="coerce")
+    review_df = review_df.dropna(subset=["_review_x"]).sort_values("_review_x").drop_duplicates(subset="_review_x")
+    review_df = review_df.reset_index(drop=True)
+
+    if review_df.empty or len(review_df) <= max_points:
+        return review_df.drop(columns="_review_x", errors="ignore").reset_index(drop=True)
+
+    sampled_indices = _choose_downsample_indices(review_df["_review_x"].to_numpy(dtype=float), max_points)
+    return review_df.iloc[sampled_indices].drop(columns="_review_x", errors="ignore").reset_index(drop=True)
+
+
+def _choose_downsample_indices(x_values: np.ndarray, max_points: int) -> list[int]:
+    if len(x_values) <= max_points:
+        return list(range(len(x_values)))
+
+    target_values = np.linspace(float(x_values[0]), float(x_values[-1]), num=max_points)
+    candidate_indices: list[int] = [0]
+
+    for target in target_values[1:-1]:
+        right_index = int(np.searchsorted(x_values, target, side="left"))
+        right_index = min(max(right_index, 0), len(x_values) - 1)
+        left_index = max(right_index - 1, 0)
+        chosen_index = min(
+            (left_index, right_index),
+            key=lambda index: (abs(float(x_values[index]) - float(target)), index),
+        )
+        candidate_indices.append(chosen_index)
+
+    candidate_indices.append(len(x_values) - 1)
+    return list(dict.fromkeys(candidate_indices))
+
+
 def _read_last_numeric_value(series: pd.Series) -> float | None:
     numeric_values = pd.to_numeric(series, errors="coerce").dropna()
     if numeric_values.empty:
         return None
 
     return float(numeric_values.iloc[-1])
+
+
+def _read_series_last_numeric_value(df: pd.DataFrame, column: str) -> float | None:
+    if column not in df.columns:
+        return None
+    return _read_last_numeric_value(df[column])
+
+
+def _read_series_last_bool_value(df: pd.DataFrame, column: str) -> bool | None:
+    numeric_value = _read_series_last_numeric_value(df, column)
+    if numeric_value is None:
+        return None
+    return bool(int(numeric_value))
 
 
 def _read_metadata_lap_time(

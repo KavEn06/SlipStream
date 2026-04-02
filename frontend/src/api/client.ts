@@ -29,10 +29,16 @@ export const api = {
     sessionId: string,
     lapNumber: number,
     type: "raw" | "processed" = "processed",
+    options?: {
+      view?: "full" | "review";
+      maxPoints?: number;
+    },
   ) =>
-    fetchJson<LapData>(
-      `/sessions/${sessionId}/laps/${lapNumber}?data_type=${type}`,
-    ),
+    fetchJson<LapData>(`/sessions/${sessionId}/laps/${lapNumber}?${new URLSearchParams({
+      data_type: type,
+      ...(options?.view ? { view: options.view } : {}),
+      ...(options?.maxPoints !== undefined ? { max_points: String(options.maxPoints) } : {}),
+    }).toString()}`),
 
   processSession: (id: string) =>
     fetchJson<ProcessResponse>(`/sessions/${id}/process`, { method: "POST" }),

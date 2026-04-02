@@ -62,6 +62,13 @@ interface Props {
   yKey: string;
   label: string;
   color: string;
+  xTickFormatter?: (value: number | string) => string;
+  xValueFormatter?: (
+    value: number | string | readonly (number | string)[] | undefined,
+  ) => string;
+  yValueFormatter?: (
+    value: number | string | readonly (number | string)[] | undefined,
+  ) => string;
   height?: number;
   syncId?: string;
   badge?: ReactNode;
@@ -76,6 +83,9 @@ export function LapChart({
   yKey,
   label,
   color,
+  xTickFormatter,
+  xValueFormatter,
+  yValueFormatter,
   height = 200,
   syncId,
   badge,
@@ -124,14 +134,21 @@ export function LapChart({
             dataKey={xKey}
             tick={{ fill: COLORS.tick, fontSize: 10 }}
             stroke={COLORS.axis}
-            tickFormatter={(v: number) =>
-              typeof v === "number" ? v.toFixed(2) : String(v)
+            tickFormatter={(value: number | string) =>
+              xTickFormatter
+                ? xTickFormatter(value)
+                : typeof value === "number"
+                  ? value.toFixed(2)
+                  : String(value)
             }
           />
           <YAxis
             tick={{ fill: COLORS.tick, fontSize: 10 }}
             stroke={COLORS.axis}
             width={55}
+            tickFormatter={(value: number | string) =>
+              yValueFormatter ? yValueFormatter(value) : formatTooltipValue(value)
+            }
           />
           <Tooltip
             cursor={{ stroke: COLORS.axis, strokeDasharray: "3 6" }}
@@ -142,10 +159,15 @@ export function LapChart({
               fontSize: 12,
             }}
             labelStyle={{ color: COLORS.tick }}
-            formatter={(value) => [formatTooltipValue(value), label]}
+            formatter={(value) => [
+              yValueFormatter ? yValueFormatter(value) : formatTooltipValue(value),
+              label,
+            ]}
             labelFormatter={(label) =>
               typeof label === "number" || typeof label === "string"
-                ? formatTooltipValue(label)
+                ? xValueFormatter
+                  ? xValueFormatter(label)
+                  : formatTooltipValue(label)
                 : String(label)
             }
           />

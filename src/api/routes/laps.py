@@ -13,8 +13,10 @@ def get_lap(
     session_id: str,
     lap_number: int,
     data_type: str = Query("processed", pattern="^(raw|processed)$"),
+    view: str = Query("full", pattern="^(full|review)$"),
+    max_points: int = Query(1000, ge=100, le=5000),
 ):
-    result = get_lap_data(session_id, lap_number, data_type)
+    result = get_lap_data(session_id, lap_number, data_type, view=view, max_points=max_points)
     if result is None:
         raise HTTPException(status_code=404, detail=f"Lap data not found ({data_type})")
     return result

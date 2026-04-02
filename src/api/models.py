@@ -41,12 +41,27 @@ class SessionDetail(BaseModel):
     laps: list[LapSummary] = []
 
 
+class LapDataSummary(BaseModel):
+    lap_time_s: float | None = None
+    lap_is_valid: bool | None = None
+
+
+class LapDataSampling(BaseModel):
+    view: str
+    source_rows: int
+    returned_rows: int
+    max_points: int | None = None
+    x_key: str
+
+
 class LapData(BaseModel):
     session_id: str
     lap_number: int
     data_type: str
     columns: list[str]
     records: list[dict]
+    summary: LapDataSummary
+    sampling: LapDataSampling
 
 
 class CaptureStatus(BaseModel):

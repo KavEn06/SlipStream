@@ -74,10 +74,10 @@ html[data-theme="light"] {
   --app-warning: #a77023;
   --app-danger: #be4545;
   --app-body-bg:
-    radial-gradient(circle at top right, rgb(var(--app-accent-rgb) / 0.12), transparent 26%),
-    linear-gradient(180deg, #f8f2ee 0%, #ece4de 100%);
+    radial-gradient(circle at top right, rgb(var(--app-accent-rgb) / 0.15), transparent 26%),
+    linear-gradient(180deg, #f8f0ea 0%, #eadfd7 100%);
   --app-hero-overlay:
-    radial-gradient(circle at top left, rgb(var(--app-accent-rgb) / 0.16), transparent 38%),
+    radial-gradient(circle at top left, rgb(var(--app-accent-rgb) / 0.14), transparent 32%),
     linear-gradient(118deg, rgba(255, 255, 255, 0.58), transparent 46%),
     repeating-linear-gradient(
       135deg,
@@ -86,14 +86,8 @@ html[data-theme="light"] {
       transparent 1px,
       transparent 18px
     );
-  --app-hero-band-border: rgb(var(--app-accent-rgb) / 0.1);
-  --app-hero-band-bg: linear-gradient(
-    90deg,
-    rgb(var(--app-accent-rgb) / 0.015) 0%,
-    rgb(var(--app-accent-rgb) / 0.055) 44%,
-    rgb(var(--app-accent-rgb) / 0.04) 66%,
-    rgb(var(--app-accent-rgb) / 0.01) 100%
-  );
+  --app-hero-band-border: rgba(108, 87, 81, 0.16);
+  --app-hero-band-bg: rgba(255, 255, 255, 0.38);
   --app-side-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(233, 223, 216, 0.72));
   --app-shadow-lg: 0 26px 48px rgba(126, 102, 92, 0.18);
   --app-chart-grid: #d8cec8;

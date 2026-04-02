@@ -11,6 +11,7 @@ import pandas as pd
 
 from src.api.services import session_scanner
 from src.core.schemas import LAP_CLOSE_REASON_LAP_ROLLOVER, RAW_LAP_COLUMNS
+from src.processing.distance import build_processed_lap_dataframe
 
 
 def build_raw_lap_dataframe(
@@ -231,6 +232,108 @@ class SessionScannerTests(unittest.TestCase):
         self.assertIsNotNone(detail)
         self.assertEqual(len(detail["laps"]), 1)
         self.assertAlmostEqual(detail["laps"][0]["lap_time_s"], 82.123, places=6)
+
+    def test_get_processed_lap_data_full_view_returns_full_rows_with_summary_and_sampling(self) -> None:
+        session_id = "session_processed_full_view"
+        processed_dir = self.processed_root / session_id
+        processed_dir.mkdir(parents=True, exist_ok=True)
+
+        raw_df = build_raw_lap_dataframe(sample_count=250)
+        processed_df = build_processed_lap_dataframe(raw_df, session_id=session_id)
+        processed_df.to_csv(processed_dir / "lap_001.csv", index=False)
+
+        with self._patch_data_roots():
+            result = session_scanner.get_lap_data(
+                session_id,
+                1,
+                "processed",
+                view=session_scanner.LAP_VIEW_FULL,
+                max_points=200,
+            )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result["columns"], list(processed_df.columns))
+        self.assertEqual(len(result["records"]), len(processed_df))
+        self.assertEqual(result["sampling"]["view"], session_scanner.LAP_VIEW_FULL)
+        self.assertEqual(result["sampling"]["source_rows"], len(processed_df))
+        self.assertEqual(result["sampling"]["returned_rows"], len(processed_df))
+        self.assertIsNone(result["sampling"]["max_points"])
+        self.assertEqual(result["sampling"]["x_key"], "ElapsedTimeS")
+        self.assertAlmostEqual(result["summary"]["lap_time_s"], float(processed_df["LapTimeS"].iloc[-1]), places=6)
+        self.assertTrue(result["summary"]["lap_is_valid"])
+
+    def test_get_processed_lap_data_review_view_downsamples_and_uses_full_summary(self) -> None:
+        session_id = "session_processed_review_view"
+        processed_dir = self.processed_root / session_id
+        processed_dir.mkdir(parents=True, exist_ok=True)
+
+        raw_df = build_raw_lap_dataframe(sample_count=2500, current_lap_step_s=0.02)
+        processed_df = build_processed_lap_dataframe(raw_df, session_id=session_id)
+        processed_df["LapTimeS"] = float("nan")
+        processed_df.loc[len(processed_df) - 1, "LapTimeS"] = 91.234
+        processed_df.to_csv(processed_dir / "lap_001.csv", index=False)
+
+        with self._patch_data_roots():
+            result = session_scanner.get_lap_data(
+                session_id,
+                1,
+                "processed",
+                view=session_scanner.LAP_VIEW_REVIEW,
+                max_points=200,
+            )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(
+            result["columns"],
+            ["ElapsedTimeS", "SpeedKph", "Throttle", "Brake", "Steering"],
+        )
+        self.assertLessEqual(len(result["records"]), 200)
+        self.assertEqual(result["sampling"]["view"], session_scanner.LAP_VIEW_REVIEW)
+        self.assertEqual(result["sampling"]["source_rows"], len(processed_df))
+        self.assertEqual(result["sampling"]["returned_rows"], len(result["records"]))
+        self.assertEqual(result["sampling"]["max_points"], 200)
+        self.assertEqual(result["sampling"]["x_key"], "ElapsedTimeS")
+        self.assertAlmostEqual(result["summary"]["lap_time_s"], 91.234, places=6)
+        self.assertTrue(result["summary"]["lap_is_valid"])
+        self.assertAlmostEqual(float(result["records"][0]["ElapsedTimeS"]), 0.0, places=6)
+        self.assertAlmostEqual(
+            float(result["records"][-1]["ElapsedTimeS"]),
+            float(processed_df["ElapsedTimeS"].iloc[-1]),
+            places=6,
+        )
+
+    def test_get_raw_lap_data_review_view_returns_raw_chart_columns_and_summary(self) -> None:
+        session_id = "session_raw_review_view"
+        raw_dir = self.raw_root / session_id
+        raw_dir.mkdir(parents=True, exist_ok=True)
+
+        raw_df = build_raw_lap_dataframe(sample_count=2500, current_lap_step_s=0.02)
+        raw_df.to_csv(raw_dir / "lap_001.csv", index=False)
+
+        with self._patch_data_roots():
+            result = session_scanner.get_lap_data(
+                session_id,
+                1,
+                "raw",
+                view=session_scanner.LAP_VIEW_REVIEW,
+                max_points=150,
+            )
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result["columns"], ["CurrentLap", "Speed", "Accel", "Brake", "Steer"])
+        self.assertLessEqual(len(result["records"]), 150)
+        self.assertEqual(result["sampling"]["view"], session_scanner.LAP_VIEW_REVIEW)
+        self.assertEqual(result["sampling"]["source_rows"], len(raw_df))
+        self.assertEqual(result["sampling"]["returned_rows"], len(result["records"]))
+        self.assertEqual(result["sampling"]["max_points"], 150)
+        self.assertEqual(result["sampling"]["x_key"], "CurrentLap")
+        self.assertAlmostEqual(result["summary"]["lap_time_s"], float(raw_df["CurrentLap"].iloc[-1]), places=6)
+        self.assertIsNone(result["summary"]["lap_is_valid"])
+        self.assertAlmostEqual(float(result["records"][0]["CurrentLap"]), float(raw_df["CurrentLap"].iloc[0]), places=6)
+        self.assertAlmostEqual(float(result["records"][-1]["CurrentLap"]), float(raw_df["CurrentLap"].iloc[-1]), places=6)
 
     def _write_metadata(
         self,
