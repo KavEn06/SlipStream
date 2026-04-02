@@ -10,7 +10,6 @@
           theme: "dark",
           accent: "red",
           density: "comfortable",
-          motion: "standard",
         };
 
         const normalize = (value) => ({
@@ -23,16 +22,13 @@
           density: value && (value.density === "compact" || value.density === "comfortable")
             ? value.density
             : defaults.density,
-          motion: value && (value.motion === "reduced" || value.motion === "standard")
-            ? value.motion
-            : defaults.motion,
         });
 
         const apply = (appearance) => {
           document.documentElement.dataset.theme = appearance.theme;
           document.documentElement.dataset.accent = appearance.accent;
           document.documentElement.dataset.density = appearance.density;
-          document.documentElement.dataset.motion = appearance.motion;
+          delete document.documentElement.dataset.motion;
         };
 
         try {

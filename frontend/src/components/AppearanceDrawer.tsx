@@ -4,7 +4,6 @@ import {
   useAppearance,
   type AccentName,
   type DensityMode,
-  type MotionMode,
   type ThemeName,
 } from "../hooks/useAppearance";
 
@@ -37,19 +36,6 @@ const DENSITY_OPTIONS: PreferenceOption<DensityMode>[] = [
     value: "compact",
     label: "Compact",
     description: "Tighter lists and panels.",
-  },
-];
-
-const MOTION_OPTIONS: PreferenceOption<MotionMode>[] = [
-  {
-    value: "standard",
-    label: "Standard",
-    description: "Keep the full UI motion.",
-  },
-  {
-    value: "reduced",
-    label: "Reduced",
-    description: "Tone down movement.",
   },
 ];
 
@@ -181,8 +167,6 @@ export function AppearanceDrawer({
     setAccent,
     density,
     setDensity,
-    motion,
-    setMotion,
   } = useAppearance();
   const titleId = useId();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -372,16 +356,8 @@ export function AppearanceDrawer({
               options={DENSITY_OPTIONS}
               onChange={setDensity}
             />
-
-            <PreferenceSection
-              name="motion"
-              title="Motion"
-              value={motion}
-              options={MOTION_OPTIONS}
-              onChange={setMotion}
-            />
-          </div>
-        </aside>
+        </div>
+      </aside>
       </div>
     </div>,
     document.body,

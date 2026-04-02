@@ -12,27 +12,23 @@ export const LEGACY_THEME_STORAGE_KEY = "slipstream-theme";
 export type ThemeName = "dark" | "light";
 export type AccentName = "red" | "blue" | "green" | "gold" | "purple" | "pink";
 export type DensityMode = "comfortable" | "compact";
-export type MotionMode = "standard" | "reduced";
 
 export interface AppearancePreferences {
   theme: ThemeName;
   accent: AccentName;
   density: DensityMode;
-  motion: MotionMode;
 }
 
 const DEFAULT_APPEARANCE: AppearancePreferences = {
   theme: "dark",
   accent: "red",
   density: "comfortable",
-  motion: "standard",
 };
 
 interface AppearanceContextValue extends AppearancePreferences {
   setTheme: (theme: ThemeName) => void;
   setAccent: (accent: AccentName) => void;
   setDensity: (density: DensityMode) => void;
-  setMotion: (motion: MotionMode) => void;
 }
 
 const AppearanceContext = createContext<AppearanceContextValue | null>(null);
@@ -56,10 +52,6 @@ function isDensityMode(value: string | null | undefined): value is DensityMode {
   return value === "comfortable" || value === "compact";
 }
 
-function isMotionMode(value: string | null | undefined): value is MotionMode {
-  return value === "standard" || value === "reduced";
-}
-
 function normalizeAppearance(
   partial: Partial<AppearancePreferences> | null | undefined,
 ): AppearancePreferences {
@@ -73,9 +65,6 @@ function normalizeAppearance(
     density: isDensityMode(partial?.density)
       ? partial.density
       : DEFAULT_APPEARANCE.density,
-    motion: isMotionMode(partial?.motion)
-      ? partial.motion
-      : DEFAULT_APPEARANCE.motion,
   };
 }
 
@@ -84,8 +73,8 @@ function getAppearanceFromDocument(): AppearancePreferences | null {
     return null;
   }
 
-  const { theme, accent, density, motion } = document.documentElement.dataset;
-  if (!theme && !accent && !density && !motion) {
+  const { theme, accent, density } = document.documentElement.dataset;
+  if (!theme && !accent && !density) {
     return null;
   }
 
@@ -93,7 +82,6 @@ function getAppearanceFromDocument(): AppearancePreferences | null {
     theme: isThemeName(theme) ? theme : undefined,
     accent: isAccentName(accent) ? accent : undefined,
     density: isDensityMode(density) ? density : undefined,
-    motion: isMotionMode(motion) ? motion : undefined,
   });
 }
 
@@ -126,7 +114,7 @@ export function applyAppearance(appearance: AppearancePreferences) {
   document.documentElement.dataset.theme = appearance.theme;
   document.documentElement.dataset.accent = appearance.accent;
   document.documentElement.dataset.density = appearance.density;
-  document.documentElement.dataset.motion = appearance.motion;
+  delete document.documentElement.dataset.motion;
 }
 
 export function initializeAppearance() {
@@ -175,13 +163,6 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       setDensity: (density) => {
         setAppearanceState((current) => {
           const next = { ...current, density };
-          persistAppearance(next);
-          return next;
-        });
-      },
-      setMotion: (motion) => {
-        setAppearanceState((current) => {
-          const next = { ...current, motion };
           persistAppearance(next);
           return next;
         });
