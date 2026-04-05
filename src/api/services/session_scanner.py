@@ -17,7 +17,18 @@ REVIEW_X_KEYS = {
     "raw": "CurrentLap",
 }
 REVIEW_COLUMNS = {
-    "processed": ["ElapsedTimeS", "SpeedKph", "Throttle", "Brake", "Steering"],
+    "processed": [
+        "ElapsedTimeS",
+        "NormalizedDistance",
+        "CumulativeDistanceM",
+        "PositionX",
+        "PositionY",
+        "PositionZ",
+        "SpeedKph",
+        "Throttle",
+        "Brake",
+        "Steering",
+    ],
     "raw": ["CurrentLap", "Speed", "Accel", "Brake", "Steer"],
 }
 
@@ -66,21 +77,23 @@ def get_session_detail(session_id: str) -> dict | None:
 
     raw_lap_files = _get_lap_files(raw_dir)
     processed_lap_files = _get_lap_files(processed_dir)
-    all_lap_numbers = sorted(set(raw_lap_files) | set(processed_lap_files))
+    lap_number_mapping = _build_session_lap_number_mapping(raw_lap_files, processed_lap_files, metadata)
+    all_stored_lap_numbers = sorted(lap_number_mapping["stored_to_display"])
 
     laps = []
-    for lap_num in all_lap_numbers:
-        metadata_lap_time_s = _read_metadata_lap_time(metadata, lap_num)
+    for stored_lap_number in all_stored_lap_numbers:
+        display_lap_number = lap_number_mapping["stored_to_display"][stored_lap_number]
+        metadata_lap_time_s = _read_metadata_lap_time(metadata, stored_lap_number)
         lap_info: dict = {
-            "lap_number": lap_num,
-            "has_raw": lap_num in raw_lap_files,
-            "has_processed": lap_num in processed_lap_files,
+            "lap_number": display_lap_number,
+            "has_raw": stored_lap_number in raw_lap_files,
+            "has_processed": stored_lap_number in processed_lap_files,
             "lap_time_s": metadata_lap_time_s,
             "is_valid": None,
         }
-        if lap_num in processed_lap_files:
+        if stored_lap_number in processed_lap_files:
             try:
-                lap_info.update(_read_processed_lap_summary(processed_lap_files[lap_num]))
+                lap_info.update(_read_processed_lap_summary(processed_lap_files[stored_lap_number]))
             except Exception:
                 pass
 
@@ -96,7 +109,7 @@ def get_session_detail(session_id: str) -> dict | None:
         "track_location": metadata.get("track_location"),
         "track_length_m": metadata.get("track_length_m"),
         "car_ordinal": metadata.get("car_ordinal"),
-        "total_laps": len(all_lap_numbers),
+        "total_laps": len(all_stored_lap_numbers),
         "has_processed": len(processed_lap_files) > 0,
         "schema_version": metadata.get("schema_version"),
         "processed_schema_version": metadata.get("processed_schema_version"),
@@ -139,7 +152,19 @@ def get_lap_data(
     max_points: int = 1000,
 ) -> dict | None:
     base_dir = RAW_DATA_ROOT if data_type == "raw" else PROCESSED_DATA_ROOT
-    lap_file = base_dir / session_id / f"lap_{lap_number:03d}.csv"
+    raw_dir = RAW_DATA_ROOT / session_id
+    processed_dir = PROCESSED_DATA_ROOT / session_id
+    metadata = (_load_metadata(raw_dir) or {}) | (_load_metadata(processed_dir) or {})
+    lap_number_mapping = _build_session_lap_number_mapping(
+        _get_lap_files(raw_dir),
+        _get_lap_files(processed_dir),
+        metadata,
+    )
+    stored_lap_number = lap_number_mapping["display_to_stored"].get(lap_number)
+    if stored_lap_number is None:
+        return None
+
+    lap_file = base_dir / session_id / f"lap_{stored_lap_number:03d}.csv"
 
     if not lap_file.exists():
         return None
@@ -184,10 +209,22 @@ def delete_session(session_id: str) -> bool:
 
 
 def delete_lap(session_id: str, lap_number: int) -> bool:
+    raw_dir = RAW_DATA_ROOT / session_id
+    processed_dir = PROCESSED_DATA_ROOT / session_id
+    metadata = (_load_metadata(raw_dir) or {}) | (_load_metadata(processed_dir) or {})
+    lap_number_mapping = _build_session_lap_number_mapping(
+        _get_lap_files(raw_dir),
+        _get_lap_files(processed_dir),
+        metadata,
+    )
+    stored_lap_number = lap_number_mapping["display_to_stored"].get(lap_number)
+    if stored_lap_number is None:
+        return False
+
     deleted = False
     for root in (RAW_DATA_ROOT, PROCESSED_DATA_ROOT):
         session_dir = root / session_id
-        lap_path = session_dir / f"lap_{lap_number:03d}.csv"
+        lap_path = session_dir / f"lap_{stored_lap_number:03d}.csv"
         if lap_path.exists():
             lap_path.unlink()
             deleted = True
@@ -229,6 +266,45 @@ def _get_lap_files(directory: Path) -> dict[int, Path]:
         if match:
             files[int(match.group(1))] = path
     return files
+
+
+def _build_session_lap_number_mapping(
+    raw_lap_files: dict[int, Path],
+    processed_lap_files: dict[int, Path],
+    metadata: dict | None,
+) -> dict[str, dict[int, int]]:
+    stored_lap_numbers = sorted(set(raw_lap_files) | set(processed_lap_files) | set(_metadata_lap_numbers(metadata)))
+    display_offset = 1 if 0 in stored_lap_numbers else 0
+
+    stored_to_display = {
+        stored_lap_number: stored_lap_number + display_offset
+        for stored_lap_number in stored_lap_numbers
+    }
+    display_to_stored = {
+        display_lap_number: stored_lap_number
+        for stored_lap_number, display_lap_number in stored_to_display.items()
+    }
+    return {
+        "stored_to_display": stored_to_display,
+        "display_to_stored": display_to_stored,
+    }
+
+
+def _metadata_lap_numbers(metadata: dict | None) -> list[int]:
+    if not isinstance(metadata, dict):
+        return []
+
+    lap_index = metadata.get("lap_index")
+    if not isinstance(lap_index, dict):
+        return []
+
+    lap_numbers: list[int] = []
+    for key in lap_index:
+        try:
+            lap_numbers.append(int(key))
+        except (TypeError, ValueError):
+            continue
+    return lap_numbers
 
 
 def _read_processed_lap_summary(path: Path) -> dict[str, float | bool | None]:

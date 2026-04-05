@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -16,6 +16,50 @@ const COLORS = {
   tooltipBg: "var(--app-chart-tooltip-bg)",
   tooltipBorder: "var(--app-chart-tooltip-border)",
 };
+
+function resolveActiveIndex(
+  state: Record<string, unknown>,
+  data: Record<string, number | string>[],
+  xKey?: string,
+): number | null {
+  const rawTooltipIndex = state.activeTooltipIndex;
+  if (typeof rawTooltipIndex === "number" && rawTooltipIndex >= 0) {
+    return rawTooltipIndex;
+  }
+
+  if (!xKey) {
+    return null;
+  }
+
+  const activeLabel = state.activeLabel;
+  if (activeLabel === undefined || activeLabel === null) {
+    return null;
+  }
+
+  const normalizedLabel =
+    typeof activeLabel === "number"
+      ? activeLabel
+      : typeof activeLabel === "string" && activeLabel.trim() !== ""
+        ? Number(activeLabel)
+        : activeLabel;
+
+  return (
+    data.findIndex((row) => {
+      const rowValue = row[xKey];
+      if (typeof normalizedLabel === "number") {
+        const numericRowValue =
+          typeof rowValue === "number"
+            ? rowValue
+            : typeof rowValue === "string" && rowValue.trim() !== ""
+              ? Number(rowValue)
+              : Number.NaN;
+        return Number.isFinite(numericRowValue) && Math.abs(numericRowValue - normalizedLabel) < 1e-6;
+      }
+
+      return rowValue === normalizedLabel;
+    }) ?? -1
+  );
+}
 
 function formatTooltipNumber(value: number): string {
   if (!Number.isFinite(value)) {
@@ -75,6 +119,8 @@ interface Props {
   action?: ReactNode;
   className?: string;
   emptyMessage?: string;
+  onActiveIndexChange?: (index: number | null) => void;
+  onActiveScrubValueChange?: (value: number | string | null) => void;
 }
 
 export function LapChart({
@@ -92,7 +138,39 @@ export function LapChart({
   action,
   className = "",
   emptyMessage,
+  onActiveIndexChange,
+  onActiveScrubValueChange,
 }: Props) {
+  const handleMouseMove = useCallback(
+    (state: Record<string, unknown>) => {
+      if (!state?.isTooltipActive) {
+        return;
+      }
+
+      const activeLabel = state.activeLabel;
+      if (
+        onActiveScrubValueChange &&
+        (typeof activeLabel === "number" || typeof activeLabel === "string")
+      ) {
+        onActiveScrubValueChange(activeLabel);
+      }
+
+      if (!onActiveIndexChange) {
+        return;
+      }
+
+      const idx = resolveActiveIndex(state, data, xKey);
+      if (idx !== null && idx >= 0) {
+        onActiveIndexChange(idx);
+      }
+    },
+    [data, onActiveIndexChange, onActiveScrubValueChange, xKey],
+  );
+
+  const handleMouseLeave = useCallback(() => {
+    onActiveIndexChange?.(null);
+    onActiveScrubValueChange?.(null);
+  }, [onActiveIndexChange, onActiveScrubValueChange]);
   if (!data.length || !(yKey in data[0])) {
     return (
       <div
@@ -128,7 +206,12 @@ export function LapChart({
         {action}
       </div>
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} syncId={syncId}>
+        <LineChart
+          data={data}
+          syncId={syncId}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+        >
           <CartesianGrid stroke={COLORS.grid} strokeDasharray="2 6" />
           <XAxis
             dataKey={xKey}

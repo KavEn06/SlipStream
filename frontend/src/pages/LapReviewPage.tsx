@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { LapChart } from "../components/LapChart";
+import { TrackMap } from "../components/TrackMap";
 import { SurfaceMessage, SurfaceSkeleton } from "../components/PageState";
 import type { LapData } from "../types";
 
@@ -228,6 +229,16 @@ export function LapReviewPage() {
   const [reloadToken, setReloadToken] = useState(0);
   const [visibleCharts, setVisibleCharts] = useState(DEFAULT_VISIBLE_CHARTS);
   const [focusedChart, setFocusedChart] = useState<ChartKey | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [activeScrubValue, setActiveScrubValue] = useState<number | string | null>(null);
+
+  const handleActiveIndexChange = useCallback((index: number | null) => {
+    setActiveIndex(index);
+  }, []);
+
+  const handleActiveScrubValueChange = useCallback((value: number | string | null) => {
+    setActiveScrubValue(value);
+  }, []);
 
   const parsedLapNumber = Number.parseInt(lapNumber ?? "", 10);
   const canLoad = Boolean(sessionId) && Number.isFinite(parsedLapNumber);
@@ -417,6 +428,12 @@ export function LapReviewPage() {
     [isProcessed],
   );
 
+  const hasPositionData = useMemo(() => {
+    if (!isProcessed || records.length < 20) return false;
+    const first = records[0];
+    return first.PositionX !== undefined && first.PositionZ !== undefined;
+  }, [isProcessed, records]);
+
   const visibleChartKeys = CHART_ORDER.filter((key) => visibleCharts[key]);
   const visibleMiddleCharts = (["throttle", "brake"] as ChartKey[]).filter(
     (key) => visibleCharts[key],
@@ -463,6 +480,8 @@ export function LapReviewPage() {
         syncId="lap-review"
         height={height}
         className={className}
+        onActiveIndexChange={handleActiveIndexChange}
+        onActiveScrubValueChange={handleActiveScrubValueChange}
         action={
           <button
             type="button"
@@ -639,9 +658,29 @@ export function LapReviewPage() {
           message="Turn on at least one telemetry series to continue reviewing this lap."
         />
       ) : focusedChart ? (
-        renderChart(focusedChart, 420, "themed-shadow-lg")
+        <div className="density-analysis-stack">
+          {hasPositionData && (
+            <TrackMap
+              records={records}
+              activeIndex={activeIndex}
+              activeScrubValue={activeScrubValue}
+              xKey={xKey}
+              height={280}
+            />
+          )}
+          {renderChart(focusedChart, 420, "themed-shadow-lg")}
+        </div>
       ) : (
         <div className="density-analysis-stack">
+          {hasPositionData && (
+            <TrackMap
+              records={records}
+              activeIndex={activeIndex}
+              activeScrubValue={activeScrubValue}
+              xKey={xKey}
+            />
+          )}
+
           {visibleCharts.speed && renderChart("speed", 260)}
 
           {visibleMiddleCharts.length > 0 && (

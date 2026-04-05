@@ -233,6 +233,101 @@ class SessionScannerTests(unittest.TestCase):
         self.assertEqual(len(detail["laps"]), 1)
         self.assertAlmostEqual(detail["laps"][0]["lap_time_s"], 82.123, places=6)
 
+    def test_session_detail_normalizes_zero_based_lap_numbers_for_output(self) -> None:
+        session_id = "session_zero_based_output"
+        raw_dir = self.raw_root / session_id
+        raw_dir.mkdir(parents=True, exist_ok=True)
+
+        first_lap_df = build_raw_lap_dataframe(lap_number=0)
+        second_lap_df = build_raw_lap_dataframe(lap_number=1, start_timestamp_ms=3000)
+        first_lap_df.to_csv(raw_dir / "lap_000.csv", index=False)
+        second_lap_df.to_csv(raw_dir / "lap_001.csv", index=False)
+        metadata = {
+            "session_id": session_id,
+            "schema_version": "test-schema",
+            "sim": "Forza Motorsport 7",
+            "lap_index": {
+                "0": {
+                    "close_reason": LAP_CLOSE_REASON_LAP_ROLLOVER,
+                    "first_timestamp_ms": int(first_lap_df["TimestampMS"].iloc[0]),
+                    "last_timestamp_ms": int(first_lap_df["TimestampMS"].iloc[-1]),
+                },
+                "1": {
+                    "close_reason": LAP_CLOSE_REASON_LAP_ROLLOVER,
+                    "first_timestamp_ms": int(second_lap_df["TimestampMS"].iloc[0]),
+                    "last_timestamp_ms": int(second_lap_df["TimestampMS"].iloc[-1]),
+                },
+            },
+        }
+        (raw_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+        with self._patch_data_roots():
+            detail = session_scanner.get_session_detail(session_id)
+
+        self.assertIsNotNone(detail)
+        assert detail is not None
+        self.assertEqual([lap["lap_number"] for lap in detail["laps"]], [1, 2])
+
+    def test_get_lap_data_resolves_display_lap_number_to_zero_based_file(self) -> None:
+        session_id = "session_zero_based_get"
+        raw_dir = self.raw_root / session_id
+        raw_dir.mkdir(parents=True, exist_ok=True)
+
+        raw_df = build_raw_lap_dataframe(lap_number=0)
+        raw_df.to_csv(raw_dir / "lap_000.csv", index=False)
+        metadata = {
+            "session_id": session_id,
+            "lap_index": {
+                "0": {
+                    "close_reason": LAP_CLOSE_REASON_LAP_ROLLOVER,
+                    "first_timestamp_ms": int(raw_df["TimestampMS"].iloc[0]),
+                    "last_timestamp_ms": int(raw_df["TimestampMS"].iloc[-1]),
+                },
+            },
+        }
+        (raw_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+        with self._patch_data_roots():
+            result = session_scanner.get_lap_data(session_id, 1, "raw")
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result["lap_number"], 1)
+        self.assertEqual(len(result["records"]), len(raw_df))
+        self.assertAlmostEqual(float(result["records"][0]["CurrentLap"]), float(raw_df["CurrentLap"].iloc[0]), places=6)
+
+    def test_delete_lap_resolves_display_lap_number_to_zero_based_file(self) -> None:
+        session_id = "session_zero_based_delete"
+        raw_dir = self.raw_root / session_id
+        processed_dir = self.processed_root / session_id
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        processed_dir.mkdir(parents=True, exist_ok=True)
+
+        raw_df = build_raw_lap_dataframe(lap_number=0)
+        processed_df = build_processed_lap_dataframe(raw_df, session_id=session_id)
+        raw_df.to_csv(raw_dir / "lap_000.csv", index=False)
+        processed_df.to_csv(processed_dir / "lap_000.csv", index=False)
+        metadata = {
+            "session_id": session_id,
+            "total_laps": 1,
+            "lap_index": {
+                "0": {
+                    "close_reason": LAP_CLOSE_REASON_LAP_ROLLOVER,
+                    "first_timestamp_ms": int(raw_df["TimestampMS"].iloc[0]),
+                    "last_timestamp_ms": int(raw_df["TimestampMS"].iloc[-1]),
+                },
+            },
+        }
+        (raw_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        (processed_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
+        with self._patch_data_roots():
+            deleted = session_scanner.delete_lap(session_id, 1)
+
+        self.assertTrue(deleted)
+        self.assertFalse((raw_dir / "lap_000.csv").exists())
+        self.assertFalse((processed_dir / "lap_000.csv").exists())
+
     def test_get_processed_lap_data_full_view_returns_full_rows_with_summary_and_sampling(self) -> None:
         session_id = "session_processed_full_view"
         processed_dir = self.processed_root / session_id
@@ -287,7 +382,18 @@ class SessionScannerTests(unittest.TestCase):
         assert result is not None
         self.assertEqual(
             result["columns"],
-            ["ElapsedTimeS", "SpeedKph", "Throttle", "Brake", "Steering"],
+            [
+                "ElapsedTimeS",
+                "NormalizedDistance",
+                "CumulativeDistanceM",
+                "PositionX",
+                "PositionY",
+                "PositionZ",
+                "SpeedKph",
+                "Throttle",
+                "Brake",
+                "Steering",
+            ],
         )
         self.assertLessEqual(len(result["records"]), 200)
         self.assertEqual(result["sampling"]["view"], session_scanner.LAP_VIEW_REVIEW)
