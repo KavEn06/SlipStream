@@ -16,6 +16,7 @@ MIN_CORNER_LENGTH_M = 15.0
 MIN_STRAIGHT_GAP_M = 40.0
 CENTER_REGION_FRACTION = 0.30
 MIN_REFERENCE_POINTS = 20
+MIN_TURNING_ANGLE_RAD = 0.26
 MIN_SUB_APEX_SEPARATION_M = 5.0
 SUB_APEX_PROMINENCE_RATIO = 0.30
 
@@ -52,6 +53,7 @@ class TrackSegmentation:
     curvature_corner_threshold: float
     curvature_smoothing_window: int
     min_corner_length_m: float
+    min_turning_angle_rad: float
     min_straight_gap_m: float
     center_region_fraction: float
     segmentation_version: str
@@ -65,6 +67,7 @@ class TrackSegmentation:
             "curvature_corner_threshold": self.curvature_corner_threshold,
             "curvature_smoothing_window": self.curvature_smoothing_window,
             "min_corner_length_m": self.min_corner_length_m,
+            "min_turning_angle_rad": self.min_turning_angle_rad,
             "min_straight_gap_m": self.min_straight_gap_m,
             "center_region_fraction": self.center_region_fraction,
             "corners": [corner.to_dict() for corner in self.corners],
@@ -92,6 +95,7 @@ def segment_track(reference_path_df: pd.DataFrame) -> TrackSegmentation:
     regions = _find_above_floor_regions(abs_kappa)
     regions = _qualify_regions(regions, abs_kappa)
     regions = _filter_by_min_length(regions, dist_m)
+    regions = _filter_by_turning_angle(regions, abs_kappa, dist_m)
     regions = _merge_nearby_regions(regions, dist_m)
     regions = _merge_wrap_around(regions, dist_m, reference_length_m)
 
@@ -107,6 +111,7 @@ def segment_track(reference_path_df: pd.DataFrame) -> TrackSegmentation:
         curvature_corner_threshold=CURVATURE_CORNER_THRESHOLD,
         curvature_smoothing_window=CURVATURE_SMOOTHING_WINDOW,
         min_corner_length_m=MIN_CORNER_LENGTH_M,
+        min_turning_angle_rad=MIN_TURNING_ANGLE_RAD,
         min_straight_gap_m=MIN_STRAIGHT_GAP_M,
         center_region_fraction=CENTER_REGION_FRACTION,
         segmentation_version=SEGMENTATION_VERSION,
@@ -204,6 +209,20 @@ def _filter_by_min_length(
         for s, e in regions
         if (dist_m[e] - dist_m[s]) >= MIN_CORNER_LENGTH_M
     ]
+
+
+def _filter_by_turning_angle(
+    regions: list[tuple[int, int]],
+    abs_kappa: np.ndarray,
+    dist_m: np.ndarray,
+) -> list[tuple[int, int]]:
+    kept: list[tuple[int, int]] = []
+    for s, e in regions:
+        length = dist_m[e] - dist_m[s]
+        mean_k = float(np.mean(abs_kappa[s : e + 1]))
+        if length * mean_k >= MIN_TURNING_ANGLE_RAD:
+            kept.append((s, e))
+    return kept
 
 
 def _merge_nearby_regions(
@@ -432,6 +451,7 @@ def _empty_segmentation(reference_path_df: pd.DataFrame) -> TrackSegmentation:
         curvature_corner_threshold=CURVATURE_CORNER_THRESHOLD,
         curvature_smoothing_window=CURVATURE_SMOOTHING_WINDOW,
         min_corner_length_m=MIN_CORNER_LENGTH_M,
+        min_turning_angle_rad=MIN_TURNING_ANGLE_RAD,
         min_straight_gap_m=MIN_STRAIGHT_GAP_M,
         center_region_fraction=CENTER_REGION_FRACTION,
         segmentation_version=SEGMENTATION_VERSION,
