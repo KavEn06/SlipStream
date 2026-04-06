@@ -73,3 +73,29 @@ export interface DeleteResponse {
 export interface SessionUpdateRequest {
   display_name: string | null;
 }
+
+export interface CornerDefinition {
+  corner_id: number;
+  start_progress_norm: number;
+  end_progress_norm: number;
+  center_progress_norm: number;
+  start_distance_m: number;
+  end_distance_m: number;
+  center_distance_m: number;
+  entry_end_progress_norm: number;
+  exit_start_progress_norm: number;
+  length_m: number;
+  peak_curvature: number;
+  mean_curvature: number;
+  direction: string;
+  is_compound: boolean;
+  sub_apex_progress_norms: number[];
+  sub_apex_distances_m: number[];
+}
+
+export interface TrackSegmentation {
+  segmentation_version: string;
+  reference_lap_number: number;
+  reference_length_m: number;
+  corners: CornerDefinition[];
+}

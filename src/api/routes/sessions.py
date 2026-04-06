@@ -13,6 +13,7 @@ from src.api.services.capture_manager import CaptureManager
 from src.api.services.session_scanner import (
     delete_session,
     get_session_detail,
+    get_track_segmentation,
     list_sessions,
     update_session_metadata,
 )
@@ -68,6 +69,14 @@ def process_session_endpoint(session_id: str):
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/{session_id}/segmentation")
+def get_segmentation(session_id: str):
+    result = get_track_segmentation(session_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Segmentation not available")
+    return result
 
 
 @router.delete("/{session_id}", response_model=DeleteResponse)

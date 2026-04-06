@@ -439,6 +439,17 @@ def _refresh_metadata_total_laps(directory: Path) -> None:
         return
 
 
+def get_track_segmentation(session_id: str) -> dict | None:
+    processed_dir = PROCESSED_DATA_ROOT / session_id
+    seg_path = processed_dir / "track_segmentation.json"
+    if not seg_path.exists():
+        return None
+    try:
+        return json.loads(seg_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 def _remove_empty_session_dir(directory: Path) -> None:
     if not directory.exists():
         return

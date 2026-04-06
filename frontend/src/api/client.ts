@@ -7,6 +7,7 @@ import type {
   SessionDetail,
   SessionSummary,
   SessionUpdateRequest,
+  TrackSegmentation,
 } from "../types";
 
 const API_BASE = "/api";
@@ -49,6 +50,9 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+
+  getSegmentation: (sessionId: string) =>
+    fetchJson<TrackSegmentation>(`/sessions/${sessionId}/segmentation`),
 
   deleteSession: (id: string) =>
     fetchJson<DeleteResponse>(`/sessions/${id}`, { method: "DELETE" }),

@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import { LapChart } from "../components/LapChart";
 import { TrackMap } from "../components/TrackMap";
 import { SurfaceMessage, SurfaceSkeleton } from "../components/PageState";
-import type { LapData } from "../types";
+import type { LapData, TrackSegmentation } from "../types";
 
 type LapDataType = "processed" | "raw";
 type ChartKey = "speed" | "throttle" | "brake" | "steering";
@@ -231,6 +231,7 @@ export function LapReviewPage() {
   const [focusedChart, setFocusedChart] = useState<ChartKey | null>(null);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [activeScrubValue, setActiveScrubValue] = useState<number | string | null>(null);
+  const [segmentation, setSegmentation] = useState<TrackSegmentation | null>(null);
 
   const handleActiveIndexChange = useCallback((index: number | null) => {
     setActiveIndex(index);
@@ -279,7 +280,17 @@ export function LapReviewPage() {
       }
     };
 
+    const loadSegmentation = async () => {
+      try {
+        const seg = await api.getSegmentation(sessionId);
+        if (!cancelled) setSegmentation(seg);
+      } catch {
+        if (!cancelled) setSegmentation(null);
+      }
+    };
+
     void loadSessionPreference();
+    void loadSegmentation();
 
     return () => {
       cancelled = true;
@@ -666,6 +677,7 @@ export function LapReviewPage() {
               activeScrubValue={activeScrubValue}
               xKey={xKey}
               height={280}
+              corners={segmentation?.corners}
             />
           )}
           {renderChart(focusedChart, 420, "themed-shadow-lg")}
@@ -678,6 +690,7 @@ export function LapReviewPage() {
               activeIndex={activeIndex}
               activeScrubValue={activeScrubValue}
               xKey={xKey}
+              corners={segmentation?.corners}
             />
           )}
 

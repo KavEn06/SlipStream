@@ -14,6 +14,7 @@ from src.core.config import DEFAULT_RESAMPLE_POINTS, PROCESSED_DATA_ROOT, RAW_DA
 from src.core.schemas import PROCESSED_LAP_COLUMNS, RAW_LAP_COLUMNS, REFERENCE_LAP_COLUMNS, SCHEMA_VERSION
 from src.core.schemas import LapValidationResult
 from src.processing.alignment import align_session_laps
+from src.processing.segmentation import segment_track
 from src.processing.validation import build_validation_context, evaluate_lap_validation, write_validation_result
 
 
@@ -334,6 +335,10 @@ def process_session(raw_session_dir: str | Path, processed_session_dir: str | Pa
     }
     alignment_artifacts = align_session_laps(processed_laps)
 
+    segmentation = None
+    if alignment_artifacts.reference_path is not None:
+        segmentation = segment_track(alignment_artifacts.reference_path)
+
     processed_metadata = _build_processed_session_metadata(
         session_id=session_id,
         session_metadata=session_metadata,
@@ -348,6 +353,7 @@ def process_session(raw_session_dir: str | Path, processed_session_dir: str | Pa
             staged_laps=staged_laps,
             alignment_artifacts=alignment_artifacts,
             processed_metadata=processed_metadata,
+            segmentation=segmentation,
         )
         _commit_managed_processed_artifacts(staging_dir, processed_dir)
     except Exception:
@@ -486,6 +492,7 @@ def _write_session_artifacts(
     staged_laps: list[dict[str, object]],
     alignment_artifacts,
     processed_metadata: dict[str, object],
+    segmentation=None,
 ) -> list[Path]:
     target_dir.mkdir(parents=True, exist_ok=True)
     written_paths: list[Path] = []
@@ -503,6 +510,10 @@ def _write_session_artifacts(
         reference_path = target_dir / "reference_path.csv"
         alignment_artifacts.reference_path.to_csv(reference_path, index=False)
 
+    if segmentation is not None:
+        seg_path = target_dir / "track_segmentation.json"
+        seg_path.write_text(json.dumps(segmentation.to_dict(), indent=2), encoding="utf-8")
+
     (target_dir / "metadata.json").write_text(json.dumps(processed_metadata, indent=2), encoding="utf-8")
     return written_paths
 
@@ -514,7 +525,7 @@ def _managed_processed_artifact_paths(directory: Path) -> list[Path]:
     managed_paths = [path for path in directory.glob("lap_*.csv") if path.is_file()]
     managed_paths.extend(path for path in directory.glob("*.validation.json") if path.is_file())
 
-    for artifact_name in ("reference_path.csv", "metadata.json"):
+    for artifact_name in ("reference_path.csv", "track_segmentation.json", "metadata.json"):
         artifact_path = directory / artifact_name
         if artifact_path.is_file():
             managed_paths.append(artifact_path)
