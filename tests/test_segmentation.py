@@ -12,6 +12,7 @@ from src.processing.segmentation import (
     CURVATURE_NOISE_FLOOR,
     MIN_CORNER_LENGTH_M,
     MIN_STRAIGHT_GAP_M,
+    MIN_TURNING_ANGLE_RAD,
     SEGMENTATION_VERSION,
     CornerDefinition,
     TrackSegmentation,
@@ -521,6 +522,163 @@ class TestCornerBoundaryOrdering(unittest.TestCase):
             self.assertGreater(corner.length_m, 0)
             self.assertGreater(corner.peak_curvature, 0)
             self.assertGreater(corner.mean_curvature, 0)
+
+
+class TestTurningAngleFilter(unittest.TestCase):
+    """An arc that passes length and curvature thresholds but fails turning angle."""
+
+    def test_low_turning_angle_filtered(self) -> None:
+        radius = 100.0
+        arc_length = 16.0
+        arc_angle = arc_length / radius
+
+        curvature = 1.0 / radius
+        self.assertGreater(curvature, CURVATURE_CORNER_THRESHOLD)
+        self.assertGreater(arc_length, MIN_CORNER_LENGTH_M)
+        self.assertLess(arc_length * curvature, MIN_TURNING_ANGLE_RAD)
+
+        straight1_x, straight1_z = _straight_segment(0, 0, 300, 0)
+        end_x, end_z = straight1_x[-1], straight1_z[-1]
+        center_x, center_z = end_x, end_z + radius
+        arc_x, arc_z = _arc_segment(center_x, center_z, radius, -np.pi / 2, arc_angle)
+        arc_end_x, arc_end_z = arc_x[-1], arc_z[-1]
+        heading = -np.pi / 2 + arc_angle + np.pi / 2
+        straight2_x, straight2_z = _straight_segment(arc_end_x, arc_end_z, 300, heading)
+
+        x, z = _concat_segments(
+            (straight1_x, straight1_z),
+            (arc_x, arc_z),
+            (straight2_x, straight2_z),
+        )
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+        self.assertEqual(len(result.corners), 0)
+
+
+class TestDirectionCorrectness(unittest.TestCase):
+    """Verify left vs right direction matches the geometry."""
+
+    def _build_arc(self, arc_angle_rad: float, radius: float = 50.0) -> pd.DataFrame:
+        straight1_x, straight1_z = _straight_segment(0, 0, 200, 0)
+        end_x, end_z = straight1_x[-1], straight1_z[-1]
+
+        if arc_angle_rad > 0:
+            center_x, center_z = end_x, end_z + radius
+            start_angle = -np.pi / 2
+        else:
+            center_x, center_z = end_x, end_z - radius
+            start_angle = np.pi / 2
+
+        arc_x, arc_z = _arc_segment(center_x, center_z, radius, start_angle, arc_angle_rad)
+        arc_end_x, arc_end_z = arc_x[-1], arc_z[-1]
+        heading = start_angle + arc_angle_rad + (np.pi / 2 if arc_angle_rad > 0 else -np.pi / 2)
+        straight2_x, straight2_z = _straight_segment(arc_end_x, arc_end_z, 200, heading)
+
+        x, z = _concat_segments(
+            (straight1_x, straight1_z),
+            (arc_x, arc_z),
+            (straight2_x, straight2_z),
+        )
+        return _build_reference_path_df(x, z)
+
+    def test_left_turn_direction(self) -> None:
+        df = self._build_arc(arc_angle_rad=np.pi / 2)
+        result = segment_track(df)
+        self.assertEqual(len(result.corners), 1)
+        self.assertEqual(result.corners[0].direction, "left")
+
+    def test_right_turn_direction(self) -> None:
+        df = self._build_arc(arc_angle_rad=-np.pi / 2)
+        result = segment_track(df)
+        self.assertEqual(len(result.corners), 1)
+        self.assertEqual(result.corners[0].direction, "right")
+
+
+class TestNonOverlappingCorners(unittest.TestCase):
+    """Verify no two corners have overlapping progress ranges."""
+
+    def test_corners_do_not_overlap(self) -> None:
+        straight1_x, straight1_z = _straight_segment(0, 0, 200, 0)
+
+        cx1 = straight1_x[-1]
+        cz1 = straight1_z[-1] + 40
+        arc1_x, arc1_z = _arc_segment(cx1, cz1, 40, -np.pi / 2, np.pi / 2)
+
+        arc1_end_x, arc1_end_z = arc1_x[-1], arc1_z[-1]
+        straight2_x, straight2_z = _straight_segment(arc1_end_x, arc1_end_z, 200, np.pi / 2)
+
+        s2_end_x, s2_end_z = straight2_x[-1], straight2_z[-1]
+        cx2 = s2_end_x - 40
+        cz2 = s2_end_z
+        arc2_x, arc2_z = _arc_segment(cx2, cz2, 40, 0, np.pi / 2)
+
+        arc2_end_x, arc2_end_z = arc2_x[-1], arc2_z[-1]
+        straight3_x, straight3_z = _straight_segment(arc2_end_x, arc2_end_z, 200, np.pi)
+
+        x, z = _concat_segments(
+            (straight1_x, straight1_z),
+            (arc1_x, arc1_z),
+            (straight2_x, straight2_z),
+            (arc2_x, arc2_z),
+            (straight3_x, straight3_z),
+        )
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+
+        non_wrap = [c for c in result.corners if c.start_progress_norm < c.end_progress_norm]
+        sorted_corners = sorted(non_wrap, key=lambda c: c.start_progress_norm)
+        for i in range(len(sorted_corners) - 1):
+            self.assertLessEqual(
+                sorted_corners[i].end_progress_norm,
+                sorted_corners[i + 1].start_progress_norm,
+                f"Corner {sorted_corners[i].corner_id} overlaps corner {sorted_corners[i+1].corner_id}",
+            )
+
+
+class TestSerializationFields(unittest.TestCase):
+    """Verify all expected fields exist in serialized output."""
+
+    def test_min_turning_angle_in_dict(self) -> None:
+        straight1_x, straight1_z = _straight_segment(0, 0, 200, 0)
+        cx = straight1_x[-1]
+        cz = straight1_z[-1] + 40
+        arc_x, arc_z = _arc_segment(cx, cz, 40, -np.pi / 2, np.pi / 2)
+        arc_end_x, arc_end_z = arc_x[-1], arc_z[-1]
+        straight2_x, straight2_z = _straight_segment(arc_end_x, arc_end_z, 200, np.pi / 2)
+
+        x, z = _concat_segments(
+            (straight1_x, straight1_z),
+            (arc_x, arc_z),
+            (straight2_x, straight2_z),
+        )
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+        d = result.to_dict()
+
+        self.assertIn("min_turning_angle_rad", d)
+        self.assertAlmostEqual(d["min_turning_angle_rad"], MIN_TURNING_ANGLE_RAD)
+
+        expected_keys = {
+            "segmentation_version", "reference_lap_number", "reference_length_m",
+            "curvature_noise_floor", "curvature_corner_threshold",
+            "curvature_smoothing_window", "min_corner_length_m",
+            "min_turning_angle_rad", "min_straight_gap_m",
+            "center_region_fraction", "corners",
+        }
+        self.assertEqual(set(d.keys()), expected_keys)
+
+
+class TestNaNHandling(unittest.TestCase):
+    """Verify NaN values in reference path don't crash segmentation."""
+
+    def test_nan_in_positions_handled(self) -> None:
+        x = np.linspace(0, 500, 501)
+        z = np.zeros(501)
+        x[100] = np.nan
+        z[200] = np.nan
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+        self.assertIsInstance(result, TrackSegmentation)
 
 
 if __name__ == "__main__":

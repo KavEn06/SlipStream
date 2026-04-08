@@ -131,6 +131,14 @@ def _extract_arrays(
     dist_m = pd.to_numeric(df["ReferenceDistanceM"], errors="coerce").to_numpy(dtype=float)
     prog_norm = pd.to_numeric(df["ReferenceProgressNorm"], errors="coerce").to_numpy(dtype=float)
     ref_lap = int(pd.to_numeric(df["ReferenceLapNumber"], errors="coerce").iloc[0])
+
+    finite = np.isfinite(x) & np.isfinite(z) & np.isfinite(dist_m) & np.isfinite(prog_norm)
+    if not finite.all():
+        x = x[finite]
+        z = z[finite]
+        dist_m = dist_m[finite]
+        prog_norm = prog_norm[finite]
+
     return x, z, dist_m, prog_norm, ref_lap
 
 
@@ -139,22 +147,26 @@ def _compute_signed_curvature(
 ) -> np.ndarray:
     n = len(x)
     kappa = np.zeros(n, dtype=float)
+    if n < 3:
+        return kappa
 
-    for i in range(1, n - 1):
-        vp_x = x[i] - x[i - 1]
-        vp_z = z[i] - z[i - 1]
-        vn_x = x[i + 1] - x[i]
-        vn_z = z[i + 1] - z[i]
+    dx = np.diff(x)
+    dz = np.diff(z)
 
-        cross = vp_x * vn_z - vp_z * vn_x
-        len_p = np.hypot(vp_x, vp_z)
-        len_n = np.hypot(vn_x, vn_z)
+    vp_x = dx[:-1]
+    vp_z = dz[:-1]
+    vn_x = dx[1:]
+    vn_z = dz[1:]
 
-        if len_p < 1e-9 or len_n < 1e-9:
-            continue
+    cross = vp_x * vn_z - vp_z * vn_x
+    len_p = np.hypot(vp_x, vp_z)
+    len_n = np.hypot(vn_x, vn_z)
+    ds = (len_p + len_n) / 2.0
+    denom = len_p * len_n * ds
 
-        ds = (len_p + len_n) / 2.0
-        kappa[i] = cross / (len_p * len_n * ds)
+    valid = (len_p > 1e-9) & (len_n > 1e-9)
+    safe_denom = np.where(valid, denom, 1.0)
+    kappa[1:-1] = np.where(valid, cross / safe_denom, 0.0)
 
     return kappa
 
@@ -174,20 +186,11 @@ def _find_above_floor_regions(abs_kappa: np.ndarray) -> list[tuple[int, int]]:
     end_idx is inclusive (the last index that is above the floor).
     """
     above = abs_kappa > CURVATURE_NOISE_FLOOR
-    regions: list[tuple[int, int]] = []
-    start: int | None = None
-
-    for i, val in enumerate(above):
-        if val and start is None:
-            start = i
-        elif not val and start is not None:
-            regions.append((start, i - 1))
-            start = None
-
-    if start is not None:
-        regions.append((start, len(above) - 1))
-
-    return regions
+    padded = np.concatenate(([False], above, [False]))
+    edges = np.diff(padded.astype(np.int8))
+    starts = np.where(edges == 1)[0]
+    ends = np.where(edges == -1)[0] - 1
+    return list(zip(starts.tolist(), ends.tolist()))
 
 
 def _qualify_regions(
@@ -293,8 +296,11 @@ def _build_corner_definitions(
         if is_wrap:
             segment_abs = np.concatenate([abs_kappa[start_idx:], abs_kappa[: end_idx + 1]])
             segment_signed = np.concatenate([kappa_smoothed[start_idx:], kappa_smoothed[: end_idx + 1]])
-            segment_dist = np.concatenate([dist_m[start_idx:], dist_m[: end_idx + 1]])
-            segment_prog = np.concatenate([prog_norm[start_idx:], prog_norm[: end_idx + 1]])
+            reference_length = float(dist_m[-1])
+            segment_dist = np.concatenate([
+                dist_m[start_idx:],
+                dist_m[: end_idx + 1] + reference_length,
+            ])
             n_tail = len(abs_kappa) - start_idx
 
             center_local = int(np.argmax(segment_abs))
@@ -313,7 +319,6 @@ def _build_corner_definitions(
 
             start_d = float(dist_m[start_idx])
             end_d = float(dist_m[end_idx])
-            reference_length = float(dist_m[-1])
             length = (reference_length - start_d) + end_d
         else:
             segment_abs = abs_kappa[start_idx : end_idx + 1]

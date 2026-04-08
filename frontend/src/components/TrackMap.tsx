@@ -251,8 +251,13 @@ function buildCornerSegments(
     ];
 
     for (const range of ranges) {
+      const wraps = range.start > range.end;
       const pts = projected.filter(
-        (p) => p.progress !== null && p.progress >= range.start && p.progress <= range.end,
+        (p) =>
+          p.progress !== null &&
+          (wraps
+            ? p.progress >= range.start || p.progress <= range.end
+            : p.progress >= range.start && p.progress <= range.end),
       );
       if (pts.length < 2) continue;
 
