@@ -441,6 +441,254 @@ class SessionScannerTests(unittest.TestCase):
         self.assertAlmostEqual(float(result["records"][0]["CurrentLap"]), float(raw_df["CurrentLap"].iloc[0]), places=6)
         self.assertAlmostEqual(float(result["records"][-1]["CurrentLap"]), float(raw_df["CurrentLap"].iloc[-1]), places=6)
 
+    def test_get_compare_candidates_filters_to_same_track_and_alignment_usable_laps(self) -> None:
+        seed_session_id = "session_compare_seed"
+        usable_peer_session_id = "session_compare_peer"
+        unusable_peer_session_id = "session_compare_unusable"
+        other_track_session_id = "session_compare_other_track"
+
+        for session_id in (
+            seed_session_id,
+            usable_peer_session_id,
+            unusable_peer_session_id,
+            other_track_session_id,
+        ):
+            (self.processed_root / session_id).mkdir(parents=True, exist_ok=True)
+
+        seed_raw = build_raw_lap_dataframe(sample_count=250)
+        peer_raw = build_raw_lap_dataframe(sample_count=220)
+        unusable_raw = build_raw_lap_dataframe(sample_count=210)
+        other_track_raw = build_raw_lap_dataframe(sample_count=215)
+
+        self._build_aligned_processed_df(seed_raw, seed_session_id).to_csv(
+            self.processed_root / seed_session_id / "lap_001.csv",
+            index=False,
+        )
+        self._build_aligned_processed_df(peer_raw, usable_peer_session_id).to_csv(
+            self.processed_root / usable_peer_session_id / "lap_001.csv",
+            index=False,
+        )
+        self._build_aligned_processed_df(unusable_raw, unusable_peer_session_id, alignment_usable=False).to_csv(
+            self.processed_root / unusable_peer_session_id / "lap_001.csv",
+            index=False,
+        )
+        self._build_aligned_processed_df(other_track_raw, other_track_session_id).to_csv(
+            self.processed_root / other_track_session_id / "lap_001.csv",
+            index=False,
+        )
+
+        self._write_metadata(
+            self.processed_root / seed_session_id,
+            track_circuit="Suzuka Circuit",
+            track_layout="Grand Prix",
+            track_location="Suzuka, Japan",
+            first_timestamp_ms=int(seed_raw["TimestampMS"].iloc[0]),
+            last_timestamp_ms=int(seed_raw["TimestampMS"].iloc[-1]),
+        )
+        self._write_metadata(
+            self.processed_root / usable_peer_session_id,
+            track_circuit="Suzuka Circuit",
+            track_layout="Grand Prix",
+            track_location="Suzuka, Japan",
+            first_timestamp_ms=int(peer_raw["TimestampMS"].iloc[0]),
+            last_timestamp_ms=int(peer_raw["TimestampMS"].iloc[-1]),
+        )
+        self._write_metadata(
+            self.processed_root / unusable_peer_session_id,
+            track_circuit="Suzuka Circuit",
+            track_layout="Grand Prix",
+            track_location="Suzuka, Japan",
+            first_timestamp_ms=int(unusable_raw["TimestampMS"].iloc[0]),
+            last_timestamp_ms=int(unusable_raw["TimestampMS"].iloc[-1]),
+        )
+        self._write_metadata(
+            self.processed_root / other_track_session_id,
+            track_circuit="Silverstone",
+            track_layout="Grand Prix",
+            track_location="Silverstone, UK",
+            first_timestamp_ms=int(other_track_raw["TimestampMS"].iloc[0]),
+            last_timestamp_ms=int(other_track_raw["TimestampMS"].iloc[-1]),
+        )
+
+        with self._patch_data_roots():
+            result = session_scanner.get_compare_candidates(seed_session_id)
+
+        self.assertEqual(result["track_circuit"], "Suzuka Circuit")
+        self.assertEqual(result["track_layout"], "Grand Prix")
+        self.assertEqual(
+            {session["session_id"] for session in result["sessions"]},
+            {seed_session_id, usable_peer_session_id},
+        )
+        self.assertEqual(result["sessions"][0]["laps"][0]["lap_number"], 1)
+
+    def test_build_lap_overlay_returns_downsampled_same_track_series_and_reference_segmentation(self) -> None:
+        reference_session_id = "session_compare_overlay_ref"
+        peer_session_id = "session_compare_overlay_peer"
+
+        for session_id in (reference_session_id, peer_session_id):
+            (self.processed_root / session_id).mkdir(parents=True, exist_ok=True)
+
+        reference_raw = build_raw_lap_dataframe(sample_count=2500, current_lap_step_s=0.02)
+        peer_raw = build_raw_lap_dataframe(sample_count=2400, current_lap_step_s=0.021)
+
+        reference_processed = self._build_aligned_processed_df(reference_raw, reference_session_id)
+        reference_processed.to_csv(
+            self.processed_root / reference_session_id / "lap_001.csv",
+            index=False,
+        )
+        self._build_aligned_processed_df(peer_raw, peer_session_id).to_csv(
+            self.processed_root / peer_session_id / "lap_001.csv",
+            index=False,
+        )
+
+        self._write_metadata(
+            self.processed_root / reference_session_id,
+            track_circuit="Circuit de Barcelona-Catalunya",
+            track_layout="Grand Prix",
+            track_location="Barcelona, Spain",
+            first_timestamp_ms=int(reference_raw["TimestampMS"].iloc[0]),
+            last_timestamp_ms=int(reference_raw["TimestampMS"].iloc[-1]),
+        )
+        self._write_metadata(
+            self.processed_root / peer_session_id,
+            track_circuit="Circuit de Barcelona-Catalunya",
+            track_layout="Grand Prix",
+            track_location="Barcelona, Spain",
+            first_timestamp_ms=int(peer_raw["TimestampMS"].iloc[0]),
+            last_timestamp_ms=int(peer_raw["TimestampMS"].iloc[-1]),
+        )
+        (self.processed_root / reference_session_id / "track_segmentation.json").write_text(
+            json.dumps(
+                {
+                    "segmentation_version": "test-segmentation",
+                    "reference_lap_number": 1,
+                    "reference_length_m": 4660.0,
+                    "corners": [],
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        with self._patch_data_roots():
+            result = session_scanner.build_lap_overlay(
+                selections=[
+                    {"session_id": reference_session_id, "lap_number": 1},
+                    {"session_id": peer_session_id, "lap_number": 1},
+                ],
+                reference_lap={"session_id": reference_session_id, "lap_number": 1},
+            )
+
+        self.assertEqual(result["track_circuit"], "Circuit de Barcelona-Catalunya")
+        self.assertEqual(result["reference_lap"]["session_id"], reference_session_id)
+        self.assertIsNotNone(result["segmentation"])
+        self.assertEqual(len(result["series"]), 2)
+        self.assertEqual(list(result["series"][0]["records"][0].keys()), session_scanner.COMPARE_COLUMNS)
+        self.assertLessEqual(len(result["series"][0]["records"]), session_scanner.COMPARE_MAX_POINTS)
+        self.assertAlmostEqual(float(result["series"][0]["records"][0]["TrackProgressNorm"]), 0.0, places=6)
+        self.assertAlmostEqual(float(result["series"][0]["records"][-1]["TrackProgressNorm"]), 1.0, places=6)
+        self.assertAlmostEqual(float(result["series"][0]["records"][0]["ElapsedTimeS"]), 0.0, places=6)
+        self.assertAlmostEqual(
+            float(result["series"][0]["records"][-1]["ElapsedTimeS"]),
+            float(reference_processed["ElapsedTimeS"].iloc[-1]),
+            places=6,
+        )
+
+    def test_build_lap_overlay_rejects_cross_track_mixes(self) -> None:
+        reference_session_id = "session_compare_cross_track_ref"
+        other_track_session_id = "session_compare_cross_track_other"
+
+        for session_id in (reference_session_id, other_track_session_id):
+            (self.processed_root / session_id).mkdir(parents=True, exist_ok=True)
+
+        reference_raw = build_raw_lap_dataframe()
+        other_track_raw = build_raw_lap_dataframe()
+
+        self._build_aligned_processed_df(reference_raw, reference_session_id).to_csv(
+            self.processed_root / reference_session_id / "lap_001.csv",
+            index=False,
+        )
+        self._build_aligned_processed_df(other_track_raw, other_track_session_id).to_csv(
+            self.processed_root / other_track_session_id / "lap_001.csv",
+            index=False,
+        )
+
+        self._write_metadata(
+            self.processed_root / reference_session_id,
+            track_circuit="Suzuka Circuit",
+            track_layout="Grand Prix",
+            track_location="Suzuka, Japan",
+            first_timestamp_ms=int(reference_raw["TimestampMS"].iloc[0]),
+            last_timestamp_ms=int(reference_raw["TimestampMS"].iloc[-1]),
+        )
+        self._write_metadata(
+            self.processed_root / other_track_session_id,
+            track_circuit="Silverstone",
+            track_layout="Grand Prix",
+            track_location="Silverstone, UK",
+            first_timestamp_ms=int(other_track_raw["TimestampMS"].iloc[0]),
+            last_timestamp_ms=int(other_track_raw["TimestampMS"].iloc[-1]),
+        )
+
+        with self._patch_data_roots():
+            with self.assertRaisesRegex(ValueError, "does not match the reference track"):
+                session_scanner.build_lap_overlay(
+                    selections=[
+                        {"session_id": reference_session_id, "lap_number": 1},
+                        {"session_id": other_track_session_id, "lap_number": 1},
+                    ],
+                    reference_lap={"session_id": reference_session_id, "lap_number": 1},
+                )
+
+    def test_build_lap_overlay_rejects_duplicate_and_invalid_reference_selections(self) -> None:
+        session_id = "session_compare_duplicates"
+        processed_dir = self.processed_root / session_id
+        processed_dir.mkdir(parents=True, exist_ok=True)
+
+        raw_df = build_raw_lap_dataframe()
+        self._build_aligned_processed_df(raw_df, session_id).to_csv(
+            processed_dir / "lap_001.csv",
+            index=False,
+        )
+        self._write_metadata(
+            processed_dir,
+            track_circuit="Suzuka Circuit",
+            track_layout="Grand Prix",
+            track_location="Suzuka, Japan",
+            first_timestamp_ms=int(raw_df["TimestampMS"].iloc[0]),
+            last_timestamp_ms=int(raw_df["TimestampMS"].iloc[-1]),
+        )
+
+        with self._patch_data_roots():
+            with self.assertRaisesRegex(ValueError, "Duplicate lap selections"):
+                session_scanner.build_lap_overlay(
+                    selections=[
+                        {"session_id": session_id, "lap_number": 1},
+                        {"session_id": session_id, "lap_number": 1},
+                    ],
+                    reference_lap={"session_id": session_id, "lap_number": 1},
+                )
+
+        with self._patch_data_roots():
+            with self.assertRaisesRegex(ValueError, "Reference lap must be included"):
+                session_scanner.build_lap_overlay(
+                    selections=[{"session_id": session_id, "lap_number": 1}],
+                    reference_lap={"session_id": session_id, "lap_number": 2},
+                )
+
+    def _build_aligned_processed_df(
+        self,
+        raw_df: pd.DataFrame,
+        session_id: str,
+        *,
+        alignment_usable: bool = True,
+    ) -> pd.DataFrame:
+        processed_df = build_processed_lap_dataframe(raw_df, session_id=session_id)
+        processed_df["TrackProgressNorm"] = processed_df["NormalizedDistance"]
+        processed_df["TrackProgressM"] = processed_df["CumulativeDistanceM"]
+        processed_df["AlignmentIsUsable"] = 1 if alignment_usable else 0
+        return processed_df
+
     def _write_metadata(
         self,
         session_dir: Path,

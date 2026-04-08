@@ -46,6 +46,51 @@ export interface LapData {
   };
 }
 
+export interface CompareCandidateLap {
+  lap_number: number;
+  lap_time_s: number | null;
+}
+
+export interface CompareCandidateSession {
+  session_id: string;
+  display_name: string | null;
+  created_at_utc: string | null;
+  track_circuit: string | null;
+  track_layout: string | null;
+  track_location: string | null;
+  laps: CompareCandidateLap[];
+}
+
+export interface CompareCandidatesResponse {
+  seed_session_id: string;
+  track_circuit: string;
+  track_layout: string;
+  track_location: string | null;
+  sessions: CompareCandidateSession[];
+}
+
+export interface LapOverlaySelection {
+  session_id: string;
+  lap_number: number;
+}
+
+export interface LapOverlaySeries {
+  session_id: string;
+  display_name: string | null;
+  lap_number: number;
+  lap_time_s: number | null;
+  records: Record<string, number | string>[];
+}
+
+export interface LapOverlayResponse {
+  track_circuit: string;
+  track_layout: string;
+  track_location: string | null;
+  reference_lap: LapOverlaySelection;
+  segmentation: TrackSegmentation | null;
+  series: LapOverlaySeries[];
+}
+
 export interface CaptureStatus {
   is_active: boolean;
   session_id: string | null;

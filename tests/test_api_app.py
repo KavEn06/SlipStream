@@ -35,6 +35,12 @@ class ApiAppTests(unittest.TestCase):
         self.assertIn("ge=100", repr(max_points_query.metadata))
         self.assertIn("le=5000", repr(max_points_query.metadata))
 
+    def test_app_registers_compare_routes(self) -> None:
+        paths = {route.path for route in app.routes}
+
+        self.assertIn("/api/compare/laps/candidates", paths)
+        self.assertIn("/api/compare/laps", paths)
+
 
 if __name__ == "__main__":
     unittest.main()

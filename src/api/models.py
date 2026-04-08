@@ -64,6 +64,56 @@ class LapData(BaseModel):
     sampling: LapDataSampling
 
 
+class CompareCandidateLap(BaseModel):
+    lap_number: int
+    lap_time_s: float | None = None
+
+
+class CompareCandidateSession(BaseModel):
+    session_id: str
+    display_name: str | None = None
+    created_at_utc: str | None = None
+    track_circuit: str | None = None
+    track_layout: str | None = None
+    track_location: str | None = None
+    laps: list[CompareCandidateLap] = []
+
+
+class CompareCandidatesResponse(BaseModel):
+    seed_session_id: str
+    track_circuit: str
+    track_layout: str
+    track_location: str | None = None
+    sessions: list[CompareCandidateSession] = []
+
+
+class LapOverlaySelection(BaseModel):
+    session_id: str
+    lap_number: int
+
+
+class LapOverlayRequest(BaseModel):
+    selections: list[LapOverlaySelection]
+    reference_lap: LapOverlaySelection
+
+
+class LapOverlaySeries(BaseModel):
+    session_id: str
+    display_name: str | None = None
+    lap_number: int
+    lap_time_s: float | None = None
+    records: list[dict]
+
+
+class LapOverlayResponse(BaseModel):
+    track_circuit: str
+    track_layout: str
+    track_location: str | None = None
+    reference_lap: LapOverlaySelection
+    segmentation: dict | None = None
+    series: list[LapOverlaySeries]
+
+
 class CaptureStatus(BaseModel):
     is_active: bool = False
     session_id: str | None = None

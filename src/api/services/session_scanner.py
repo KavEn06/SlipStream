@@ -16,6 +16,9 @@ REVIEW_X_KEYS = {
     "processed": "ElapsedTimeS",
     "raw": "CurrentLap",
 }
+COMPARE_MAX_LAPS = 6
+COMPARE_MAX_POINTS = 800
+COMPARE_X_KEY = "TrackProgressNorm"
 REVIEW_COLUMNS = {
     "processed": [
         "ElapsedTimeS",
@@ -31,6 +34,17 @@ REVIEW_COLUMNS = {
     ],
     "raw": ["CurrentLap", "Speed", "Accel", "Brake", "Steer"],
 }
+COMPARE_COLUMNS = [
+    "TrackProgressNorm",
+    "TrackProgressM",
+    "ElapsedTimeS",
+    "PositionX",
+    "PositionY",
+    "PositionZ",
+    "SpeedKph",
+    "Brake",
+    "Steering",
+]
 
 
 def list_sessions() -> list[dict]:
@@ -199,6 +213,109 @@ def get_lap_data(
     }
 
 
+def get_compare_candidates(session_id: str) -> dict:
+    seed_detail = get_session_detail(session_id)
+    if seed_detail is None:
+        raise FileNotFoundError(f"Session not found: {session_id}")
+
+    track_key = _resolve_track_key(seed_detail)
+    if track_key is None:
+        raise ValueError("Seed session is missing usable track metadata")
+
+    candidate_sessions: list[dict] = []
+    for session in list_sessions():
+        session_track_key = _resolve_track_key(session)
+        if session_track_key != track_key:
+            continue
+
+        eligible_laps = _get_eligible_compare_laps(session["session_id"])
+        if not eligible_laps:
+            continue
+
+        candidate_sessions.append(
+            {
+                "session_id": session["session_id"],
+                "display_name": session.get("display_name"),
+                "created_at_utc": session.get("created_at_utc"),
+                "track_circuit": session.get("track_circuit"),
+                "track_layout": session.get("track_layout"),
+                "track_location": session.get("track_location"),
+                "laps": eligible_laps,
+            }
+        )
+
+    return {
+        "seed_session_id": session_id,
+        "track_circuit": seed_detail["track_circuit"],
+        "track_layout": seed_detail["track_layout"],
+        "track_location": seed_detail.get("track_location"),
+        "sessions": candidate_sessions,
+    }
+
+
+def build_lap_overlay(
+    selections: list[dict[str, object]],
+    reference_lap: dict[str, object],
+) -> dict:
+    normalized_selections = [_normalize_overlay_selection(selection) for selection in selections]
+    if not normalized_selections:
+        raise ValueError("Select at least one lap to compare")
+    if len(normalized_selections) > COMPARE_MAX_LAPS:
+        raise ValueError(f"Select at most {COMPARE_MAX_LAPS} laps to compare")
+
+    selection_keys = [(selection["session_id"], selection["lap_number"]) for selection in normalized_selections]
+    if len(set(selection_keys)) != len(selection_keys):
+        raise ValueError("Duplicate lap selections are not allowed")
+
+    normalized_reference = _normalize_overlay_selection(reference_lap)
+    if (normalized_reference["session_id"], normalized_reference["lap_number"]) not in set(selection_keys):
+        raise ValueError("Reference lap must be included in the selected laps")
+
+    reference_session_detail = get_session_detail(normalized_reference["session_id"])
+    if reference_session_detail is None:
+        raise FileNotFoundError(f"Reference session not found: {normalized_reference['session_id']}")
+
+    track_key = _resolve_track_key(reference_session_detail)
+    if track_key is None:
+        raise ValueError("Reference session is missing usable track metadata")
+
+    overlay_series: list[dict[str, object]] = []
+    for selection in normalized_selections:
+        session_detail = get_session_detail(selection["session_id"])
+        if session_detail is None:
+            raise FileNotFoundError(f"Session not found: {selection['session_id']}")
+
+        if _resolve_track_key(session_detail) != track_key:
+            raise ValueError(
+                f"Lap {selection['lap_number']} from {selection['session_id']} does not match the reference track"
+            )
+
+        processed_df = _load_compare_processed_lap(selection["session_id"], selection["lap_number"])
+        overlay_df = _build_compare_lap_dataframe(processed_df, max_points=COMPARE_MAX_POINTS)
+        overlay_series.append(
+            {
+                "session_id": selection["session_id"],
+                "display_name": session_detail.get("display_name"),
+                "lap_number": selection["lap_number"],
+                "lap_time_s": _read_series_last_numeric_value(processed_df, "LapTimeS"),
+                "records": overlay_df.to_dict(orient="records"),
+            }
+        )
+
+    reference_selection = {
+        "session_id": normalized_reference["session_id"],
+        "lap_number": normalized_reference["lap_number"],
+    }
+    return {
+        "track_circuit": reference_session_detail["track_circuit"],
+        "track_layout": reference_session_detail["track_layout"],
+        "track_location": reference_session_detail.get("track_location"),
+        "reference_lap": reference_selection,
+        "segmentation": get_track_segmentation(normalized_reference["session_id"]),
+        "series": overlay_series,
+    }
+
+
 def delete_session(session_id: str) -> bool:
     deleted = False
     for directory in (RAW_DATA_ROOT / session_id, PROCESSED_DATA_ROOT / session_id):
@@ -358,6 +475,29 @@ def _build_review_lap_dataframe(df: pd.DataFrame, data_type: str, max_points: in
     return review_df.iloc[sampled_indices].drop(columns="_review_x", errors="ignore").reset_index(drop=True)
 
 
+def _build_compare_lap_dataframe(df: pd.DataFrame, max_points: int) -> pd.DataFrame:
+    missing_columns = [column for column in COMPARE_COLUMNS if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Processed lap is missing compare columns: {missing_columns}")
+
+    compare_df = df[COMPARE_COLUMNS].copy()
+    compare_df["_compare_x"] = pd.to_numeric(compare_df[COMPARE_X_KEY], errors="coerce")
+    compare_df = (
+        compare_df.dropna(subset=["_compare_x"])
+        .sort_values("_compare_x")
+        .drop_duplicates(subset="_compare_x")
+        .reset_index(drop=True)
+    )
+    if compare_df.empty:
+        raise ValueError("Processed lap does not contain usable aligned progress samples")
+
+    if len(compare_df) > max_points:
+        sampled_indices = _choose_downsample_indices(compare_df["_compare_x"].to_numpy(dtype=float), max_points)
+        compare_df = compare_df.iloc[sampled_indices].reset_index(drop=True)
+
+    return compare_df.drop(columns="_compare_x", errors="ignore").reset_index(drop=True)
+
+
 def _choose_downsample_indices(x_values: np.ndarray, max_points: int) -> list[int]:
     if len(x_values) <= max_points:
         return list(range(len(x_values)))
@@ -398,6 +538,100 @@ def _read_series_last_bool_value(df: pd.DataFrame, column: str) -> bool | None:
     if numeric_value is None:
         return None
     return bool(int(numeric_value))
+
+
+def _get_eligible_compare_laps(session_id: str) -> list[dict[str, float | int | None]]:
+    raw_dir = RAW_DATA_ROOT / session_id
+    processed_dir = PROCESSED_DATA_ROOT / session_id
+    metadata = (_load_metadata(raw_dir) or {}) | (_load_metadata(processed_dir) or {})
+    raw_lap_files = _get_lap_files(raw_dir)
+    processed_lap_files = _get_lap_files(processed_dir)
+    lap_number_mapping = _build_session_lap_number_mapping(raw_lap_files, processed_lap_files, metadata)
+
+    eligible_laps: list[dict[str, float | int | None]] = []
+    for stored_lap_number in sorted(processed_lap_files):
+        lap_summary = _read_processed_compare_lap_summary(processed_lap_files[stored_lap_number])
+        if not lap_summary["alignment_is_usable"]:
+            continue
+
+        eligible_laps.append(
+            {
+                "lap_number": lap_number_mapping["stored_to_display"].get(stored_lap_number, stored_lap_number),
+                "lap_time_s": lap_summary["lap_time_s"],
+            }
+        )
+
+    return eligible_laps
+
+
+def _read_processed_compare_lap_summary(path: Path) -> dict[str, float | bool | None]:
+    df = pd.read_csv(
+        path,
+        usecols=lambda column: column in {"AlignmentIsUsable", "LapTimeS"},
+    )
+    return {
+        "lap_time_s": _read_series_last_numeric_value(df, "LapTimeS"),
+        "alignment_is_usable": _read_series_last_bool_value(df, "AlignmentIsUsable") is True,
+    }
+
+
+def _normalize_overlay_selection(selection: dict[str, object]) -> dict[str, int | str]:
+    session_id = selection.get("session_id")
+    lap_number = selection.get("lap_number")
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise ValueError("Lap selections require a session_id")
+    try:
+        parsed_lap_number = int(lap_number)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Lap selections require a numeric lap_number") from exc
+    return {
+        "session_id": session_id.strip(),
+        "lap_number": parsed_lap_number,
+    }
+
+
+def _load_compare_processed_lap(session_id: str, display_lap_number: int) -> pd.DataFrame:
+    raw_dir = RAW_DATA_ROOT / session_id
+    processed_dir = PROCESSED_DATA_ROOT / session_id
+    if not processed_dir.exists():
+        raise FileNotFoundError(f"Processed session not found: {session_id}")
+
+    metadata = (_load_metadata(raw_dir) or {}) | (_load_metadata(processed_dir) or {})
+    lap_number_mapping = _build_session_lap_number_mapping(
+        _get_lap_files(raw_dir),
+        _get_lap_files(processed_dir),
+        metadata,
+    )
+    stored_lap_number = lap_number_mapping["display_to_stored"].get(display_lap_number)
+    if stored_lap_number is None:
+        raise ValueError(f"Lap {display_lap_number} not found in session {session_id}")
+
+    lap_path = processed_dir / f"lap_{stored_lap_number:03d}.csv"
+    if not lap_path.exists():
+        raise FileNotFoundError(f"Processed lap file not found for lap {display_lap_number} in {session_id}")
+
+    df = pd.read_csv(lap_path)
+    if _read_series_last_bool_value(df, "AlignmentIsUsable") is not True:
+        raise ValueError(f"Lap {display_lap_number} in {session_id} is not alignment-usable")
+    return df
+
+
+def _normalize_track_value(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _resolve_track_key(metadata: dict | None) -> tuple[str, str] | None:
+    if not isinstance(metadata, dict):
+        return None
+
+    track_circuit = _normalize_track_value(metadata.get("track_circuit"))
+    track_layout = _normalize_track_value(metadata.get("track_layout"))
+    if track_circuit is None or track_layout is None:
+        return None
+    return (track_circuit, track_layout)
 
 
 def _read_metadata_lap_time(

@@ -15,6 +15,9 @@ const SessionDetailPage = lazy(async () => ({
 const LapReviewPage = lazy(async () => ({
   default: (await import("./pages/LapReviewPage")).LapReviewPage,
 }));
+const LapComparePage = lazy(async () => ({
+  default: (await import("./pages/LapComparePage")).LapComparePage,
+}));
 
 function RouteElement({ children }: { children: ReactNode }) {
   return <Suspense fallback={<RouteLoadingFallback />}>{children}</Suspense>;
@@ -54,6 +57,14 @@ export default function App() {
             element={
               <RouteElement>
                 <LapReviewPage />
+              </RouteElement>
+            }
+          />
+          <Route
+            path="/compare/laps"
+            element={
+              <RouteElement>
+                <LapComparePage />
               </RouteElement>
             }
           />

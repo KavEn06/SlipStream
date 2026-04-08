@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { LapChart } from "../components/LapChart";
 import { TrackMap } from "../components/TrackMap";
@@ -549,49 +549,60 @@ export function LapReviewPage() {
               )}
             </div>
 
-            <div className="relative inline-grid min-w-[220px] grid-cols-2 rounded-full border border-border/70 bg-surface-2/88 p-1">
-              <span
-                aria-hidden="true"
-                className="motion-safe-slide pointer-events-none absolute inset-y-1 left-1 rounded-full border border-accent/20 bg-accent/12 will-change-transform"
-                style={{
-                  width: "calc(50% - 0.25rem)",
-                  transform:
-                    requestedDataType === "raw"
-                      ? "translateX(100%)"
-                      : "translateX(0)",
-                }}
-              />
-              {(["processed", "raw"] as const).map((value) => {
-                const active = requestedDataType === value;
-                const unavailable = value === "processed" && processedUnavailable;
-                const disabled = loading || requestedDataType === null;
+            <div className="flex flex-col items-start gap-3 lg:items-end">
+              <Link
+                to={`/compare/laps?${new URLSearchParams({
+                  sessionId: sessionId ?? "",
+                  lapNumber: String(parsedLapNumber),
+                }).toString()}`}
+                className="motion-safe-color inline-flex h-10 items-center rounded-full border border-border/70 bg-surface-2/84 px-4 text-sm font-medium text-text-secondary hover:border-border-strong hover:bg-surface-3 hover:text-text-primary"
+              >
+                Compare This Lap
+              </Link>
+              <div className="relative inline-grid min-w-[220px] grid-cols-2 rounded-full border border-border/70 bg-surface-2/88 p-1">
+                <span
+                  aria-hidden="true"
+                  className="motion-safe-slide pointer-events-none absolute inset-y-1 left-1 rounded-full border border-accent/20 bg-accent/12 will-change-transform"
+                  style={{
+                    width: "calc(50% - 0.25rem)",
+                    transform:
+                      requestedDataType === "raw"
+                        ? "translateX(100%)"
+                        : "translateX(0)",
+                  }}
+                />
+                {(["processed", "raw"] as const).map((value) => {
+                  const active = requestedDataType === value;
+                  const unavailable = value === "processed" && processedUnavailable;
+                  const disabled = loading || requestedDataType === null;
 
-                return (
-                  <div key={value} className="group relative z-10 h-9">
-                    <button
-                      type="button"
-                      onClick={() => selectDataType(value)}
-                      className={`motion-safe-color relative flex h-full w-full items-center justify-center rounded-full px-4 text-sm font-medium capitalize ${
-                        active
-                          ? "text-accent"
-                          : unavailable
-                            ? "text-text-subtle"
-                            : "cursor-pointer text-text-muted hover:text-text-primary"
-                      }`}
-                      aria-pressed={active}
-                      aria-disabled={unavailable || disabled}
-                      disabled={disabled}
-                    >
-                      {value}
-                    </button>
-                    {unavailable && (
-                      <div className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-border/70 bg-surface-1/96 px-3 py-1.5 text-[11px] font-medium text-text-secondary opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
-                        Process the session
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  return (
+                    <div key={value} className="group relative z-10 h-9">
+                      <button
+                        type="button"
+                        onClick={() => selectDataType(value)}
+                        className={`motion-safe-color relative flex h-full w-full items-center justify-center rounded-full px-4 text-sm font-medium capitalize ${
+                          active
+                            ? "text-accent"
+                            : unavailable
+                              ? "text-text-subtle"
+                              : "cursor-pointer text-text-muted hover:text-text-primary"
+                        }`}
+                        aria-pressed={active}
+                        aria-disabled={unavailable || disabled}
+                        disabled={disabled}
+                      >
+                        {value}
+                      </button>
+                      {unavailable && (
+                        <div className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-border/70 bg-surface-1/96 px-3 py-1.5 text-[11px] font-medium text-text-secondary opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+                          Process the session
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 

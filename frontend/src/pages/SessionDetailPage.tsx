@@ -383,6 +383,12 @@ export function SessionDetailPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              <Link
+                to={`/compare/laps?${new URLSearchParams({ sessionId: session.session_id }).toString()}`}
+                className="inline-flex h-10 items-center rounded-full border border-border/70 bg-surface-2/84 px-4 text-sm font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-3 hover:text-text-primary"
+              >
+                Compare Laps
+              </Link>
               {!session.has_processed && (
                 <button
                   type="button"
@@ -560,6 +566,15 @@ export function SessionDetailPage() {
                           className="text-xs font-medium text-accent hover:underline"
                         >
                           Review
+                        </Link>
+                        <Link
+                          to={`/compare/laps?${new URLSearchParams({
+                            sessionId: session.session_id,
+                            lapNumber: String(lap.lap_number),
+                          }).toString()}`}
+                          className="text-xs font-medium text-text-secondary hover:text-text-primary hover:underline"
+                        >
+                          Compare
                         </Link>
                         <SplitDeleteButton
                           confirming={confirmingLapDelete === lap.lap_number}

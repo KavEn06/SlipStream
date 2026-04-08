@@ -1,8 +1,11 @@
 import type {
   CaptureStartRequest,
   CaptureStatus,
+  CompareCandidatesResponse,
   DeleteResponse,
   LapData,
+  LapOverlayResponse,
+  LapOverlaySelection,
   ProcessResponse,
   SessionDetail,
   SessionSummary,
@@ -40,6 +43,21 @@ export const api = {
       ...(options?.view ? { view: options.view } : {}),
       ...(options?.maxPoints !== undefined ? { max_points: String(options.maxPoints) } : {}),
     }).toString()}`),
+
+  getCompareLapCandidates: (sessionId: string) =>
+    fetchJson<CompareCandidatesResponse>(
+      `/compare/laps/candidates?${new URLSearchParams({ session_id: sessionId }).toString()}`,
+    ),
+
+  buildLapCompare: (body: {
+    selections: LapOverlaySelection[];
+    reference_lap: LapOverlaySelection;
+  }) =>
+    fetchJson<LapOverlayResponse>("/compare/laps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
 
   processSession: (id: string) =>
     fetchJson<ProcessResponse>(`/sessions/${id}/process`, { method: "POST" }),

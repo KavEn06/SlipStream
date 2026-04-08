@@ -5,6 +5,7 @@ import { useCaptureController } from "../hooks/useCaptureController";
 export const NAV_ITEMS = [
   { path: "/", label: "Home" },
   { path: "/sessions", label: "Sessions" },
+  { path: "/compare/laps", label: "Compare" },
 ] as const;
 
 function isNavItemActive(pathname: string, path: string): boolean {
@@ -14,6 +15,10 @@ function isNavItemActive(pathname: string, path: string): boolean {
 
   if (path === "/sessions") {
     return pathname.startsWith("/sessions");
+  }
+
+  if (path === "/compare/laps") {
+    return pathname.startsWith("/compare");
   }
 
   return pathname === path;
@@ -67,6 +72,39 @@ function SessionsIcon() {
   );
 }
 
+function CompareIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+        d="M4.5 7.5h15"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+        d="M4.5 12h15"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+        d="M4.5 16.5h15"
+      />
+      <circle cx="8" cy="7.5" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="11" cy="16.5" r="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function AppearanceIcon() {
   return (
     <svg
@@ -87,6 +125,10 @@ function AppearanceIcon() {
 function getItemIcon(path: string) {
   if (path === "/") {
     return <HomeIcon />;
+  }
+
+  if (path === "/compare/laps") {
+    return <CompareIcon />;
   }
 
   return <SessionsIcon />;
