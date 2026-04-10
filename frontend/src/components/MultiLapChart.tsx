@@ -128,6 +128,7 @@ function interpolateSeriesValue(
   yKey: string,
   targetX: number,
 ): number | null {
+  const EDGE_EPSILON = 1e-9;
   const points = records
     .map((record) => {
       const rawX = record[xKey];
@@ -156,12 +157,20 @@ function interpolateSeriesValue(
     return null;
   }
 
-  if (targetX <= points[0].axisValue) {
+  if (targetX < points[0].axisValue - EDGE_EPSILON) {
+    return null;
+  }
+
+  if (targetX <= points[0].axisValue + EDGE_EPSILON) {
     return points[0].value;
   }
 
   const lastPoint = points[points.length - 1];
-  if (targetX >= lastPoint.axisValue) {
+  if (targetX > lastPoint.axisValue + EDGE_EPSILON) {
+    return null;
+  }
+
+  if (targetX >= lastPoint.axisValue - EDGE_EPSILON) {
     return lastPoint.value;
   }
 

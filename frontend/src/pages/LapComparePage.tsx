@@ -188,6 +188,10 @@ export function LapComparePage() {
   }, [seedLapNumberParam, seedSessionId]);
 
   useEffect(() => {
+    setScrubState({ progressNorm: null, elapsedTimeS: null });
+  }, [overlayData]);
+
+  useEffect(() => {
     if (!seedSessionId) {
       setCandidateData(null);
       setCandidateError(null);

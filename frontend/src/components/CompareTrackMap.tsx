@@ -281,6 +281,7 @@ function interpolateTrackPoint(
   targetValue: number | null | undefined,
   key: "progress" | "elapsedTimeS",
 ): ProjectedTrackPoint | null {
+  const EDGE_EPSILON = 1e-9;
   if (!points.length || targetValue === null || targetValue === undefined) {
     return null;
   }
@@ -293,12 +294,20 @@ function interpolateTrackPoint(
     return null;
   }
 
-  if (targetValue <= keyedPoints[0][key]) {
+  if (targetValue < keyedPoints[0][key] - EDGE_EPSILON) {
+    return null;
+  }
+
+  if (targetValue <= keyedPoints[0][key] + EDGE_EPSILON) {
     return keyedPoints[0];
   }
 
   const lastPoint = keyedPoints[keyedPoints.length - 1];
-  if (lastPoint[key] <= targetValue) {
+  if (targetValue > lastPoint[key] + EDGE_EPSILON) {
+    return null;
+  }
+
+  if (lastPoint[key] - EDGE_EPSILON <= targetValue) {
     return lastPoint;
   }
 
