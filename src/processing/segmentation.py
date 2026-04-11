@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 
-SEGMENTATION_VERSION = "2026.04-v1"
+SEGMENTATION_VERSION = "2026.04-v2"
 
 CURVATURE_SMOOTHING_WINDOW = 7
 CURVATURE_NOISE_FLOOR = 0.002
@@ -17,19 +17,22 @@ MIN_STRAIGHT_GAP_M = 40.0
 CENTER_REGION_FRACTION = 0.30
 MIN_REFERENCE_POINTS = 20
 MIN_TURNING_ANGLE_RAD = 0.26
-MIN_SUB_APEX_SEPARATION_M = 5.0
-SUB_APEX_PROMINENCE_RATIO = 0.30
+MIN_SUB_APEX_SEPARATION_M = 30.0
+SUB_APEX_PROMINENCE_RATIO = 0.50
+APPROACH_LEAD_M = 80.0
 
 
 @dataclass(frozen=True)
 class CornerDefinition:
     corner_id: int
+    track_corner_key: str
     start_progress_norm: float
     end_progress_norm: float
     center_progress_norm: float
     start_distance_m: float
     end_distance_m: float
     center_distance_m: float
+    approach_start_distance_m: float
     entry_end_progress_norm: float
     exit_start_progress_norm: float
     length_m: float
@@ -45,8 +48,23 @@ class CornerDefinition:
 
 
 @dataclass(frozen=True)
+class StraightDefinition:
+    straight_id: int
+    start_distance_m: float
+    end_distance_m: float
+    length_m: float
+    preceding_corner_id: int | None
+    following_corner_id: int | None
+    wraps_start_finish: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class TrackSegmentation:
     corners: list[CornerDefinition]
+    straights: list[StraightDefinition]
     reference_lap_number: int
     reference_length_m: float
     curvature_noise_floor: float
@@ -56,6 +74,8 @@ class TrackSegmentation:
     min_turning_angle_rad: float
     min_straight_gap_m: float
     center_region_fraction: float
+    approach_lead_m: float
+    segmentation_quality: dict[str, Any]
     segmentation_version: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -70,7 +90,10 @@ class TrackSegmentation:
             "min_turning_angle_rad": self.min_turning_angle_rad,
             "min_straight_gap_m": self.min_straight_gap_m,
             "center_region_fraction": self.center_region_fraction,
+            "approach_lead_m": self.approach_lead_m,
+            "segmentation_quality": self.segmentation_quality,
             "corners": [corner.to_dict() for corner in self.corners],
+            "straights": [straight.to_dict() for straight in self.straights],
         }
 
 
@@ -100,11 +123,14 @@ def segment_track(reference_path_df: pd.DataFrame) -> TrackSegmentation:
     regions = _merge_wrap_around(regions, dist_m, reference_length_m)
 
     corners = _build_corner_definitions(
-        regions, kappa_smoothed, abs_kappa, dist_m, prog_norm,
+        regions, kappa_smoothed, abs_kappa, dist_m, prog_norm, reference_length_m,
     )
+    straights = _build_straight_definitions(corners, reference_length_m)
+    segmentation_quality = _build_segmentation_quality(corners, reference_length_m)
 
     return TrackSegmentation(
         corners=corners,
+        straights=straights,
         reference_lap_number=ref_lap_number,
         reference_length_m=reference_length_m,
         curvature_noise_floor=CURVATURE_NOISE_FLOOR,
@@ -114,6 +140,8 @@ def segment_track(reference_path_df: pd.DataFrame) -> TrackSegmentation:
         min_turning_angle_rad=MIN_TURNING_ANGLE_RAD,
         min_straight_gap_m=MIN_STRAIGHT_GAP_M,
         center_region_fraction=CENTER_REGION_FRACTION,
+        approach_lead_m=APPROACH_LEAD_M,
+        segmentation_quality=segmentation_quality,
         segmentation_version=SEGMENTATION_VERSION,
     )
 
@@ -219,11 +247,18 @@ def _filter_by_turning_angle(
     abs_kappa: np.ndarray,
     dist_m: np.ndarray,
 ) -> list[tuple[int, int]]:
+    """Keep regions whose total turning angle (∫|κ| ds) exceeds the threshold.
+
+    Uses trapezoidal integration over the actual distance spacing rather than
+    assuming a uniform grid, so the filter remains correct even if the
+    reference path spacing is ever changed away from 1 m.
+    """
     kept: list[tuple[int, int]] = []
     for s, e in regions:
-        length = dist_m[e] - dist_m[s]
-        mean_k = float(np.mean(abs_kappa[s : e + 1]))
-        if length * mean_k >= MIN_TURNING_ANGLE_RAD:
+        if e <= s:
+            continue
+        turning_angle = float(np.trapezoid(abs_kappa[s : e + 1], dist_m[s : e + 1]))
+        if turning_angle >= MIN_TURNING_ANGLE_RAD:
             kept.append((s, e))
     return kept
 
@@ -287,6 +322,7 @@ def _build_corner_definitions(
     abs_kappa: np.ndarray,
     dist_m: np.ndarray,
     prog_norm: np.ndarray,
+    reference_length_m: float,
 ) -> list[CornerDefinition]:
     corners: list[CornerDefinition] = []
 
@@ -295,11 +331,9 @@ def _build_corner_definitions(
 
         if is_wrap:
             segment_abs = np.concatenate([abs_kappa[start_idx:], abs_kappa[: end_idx + 1]])
-            segment_signed = np.concatenate([kappa_smoothed[start_idx:], kappa_smoothed[: end_idx + 1]])
-            reference_length = float(dist_m[-1])
             segment_dist = np.concatenate([
                 dist_m[start_idx:],
-                dist_m[: end_idx + 1] + reference_length,
+                dist_m[: end_idx + 1] + reference_length_m,
             ])
             n_tail = len(abs_kappa) - start_idx
 
@@ -319,7 +353,7 @@ def _build_corner_definitions(
 
             start_d = float(dist_m[start_idx])
             end_d = float(dist_m[end_idx])
-            length = (reference_length - start_d) + end_d
+            length = (reference_length_m - start_d) + end_d
         else:
             segment_abs = abs_kappa[start_idx : end_idx + 1]
 
@@ -342,28 +376,46 @@ def _build_corner_definitions(
         center_p = float(prog_norm[center_idx])
         center_d = float(dist_m[center_idx])
 
-        center_half_width_p = (CENTER_REGION_FRACTION / 2.0) * abs(end_p - start_p if not is_wrap else (1.0 - start_p) + end_p)
-        entry_end_p = max(start_p, center_p - center_half_width_p) if not is_wrap else center_p - center_half_width_p
-        exit_start_p = min(end_p, center_p + center_half_width_p) if not is_wrap else center_p + center_half_width_p
-
-        if is_wrap:
-            if entry_end_p < 0:
-                entry_end_p += 1.0
-            if exit_start_p > 1.0:
-                exit_start_p -= 1.0
-
         is_compound = len(sub_apex_global) > 1
+
+        if is_compound:
+            # Compound corners (chicanes / double-apex) have multiple curvature
+            # peaks. The single-argmax "center" cannot sensibly anchor an
+            # entry/apex/exit split, so we treat the entire region as apex and
+            # let downstream analysis handle sub-apexes individually.
+            entry_end_p = start_p
+            exit_start_p = end_p
+        else:
+            corner_width_p = (1.0 - start_p) + end_p if is_wrap else end_p - start_p
+            center_half_width_p = (CENTER_REGION_FRACTION / 2.0) * corner_width_p
+
+            if is_wrap:
+                entry_end_p = center_p - center_half_width_p
+                exit_start_p = center_p + center_half_width_p
+                if entry_end_p < 0:
+                    entry_end_p += 1.0
+                if exit_start_p > 1.0:
+                    exit_start_p -= 1.0
+            else:
+                entry_end_p = max(start_p, center_p - center_half_width_p)
+                exit_start_p = min(end_p, center_p + center_half_width_p)
+
         sub_progs = [float(prog_norm[i]) for i in sub_apex_global]
         sub_dists = [float(dist_m[i]) for i in sub_apex_global]
 
+        track_corner_key = f"c{int(round(start_d))}"
+        approach_start_d = _approach_start_distance_m(start_d, reference_length_m)
+
         corners.append(CornerDefinition(
             corner_id=corner_index + 1,
+            track_corner_key=track_corner_key,
             start_progress_norm=start_p,
             end_progress_norm=end_p,
             center_progress_norm=center_p,
             start_distance_m=start_d,
             end_distance_m=end_d,
             center_distance_m=center_d,
+            approach_start_distance_m=approach_start_d,
             entry_end_progress_norm=entry_end_p,
             exit_start_progress_norm=exit_start_p,
             length_m=length,
@@ -376,6 +428,110 @@ def _build_corner_definitions(
         ))
 
     return corners
+
+
+def _approach_start_distance_m(start_distance_m: float, reference_length_m: float) -> float:
+    """Where the braking approach to a corner begins, in reference-meters.
+
+    Wraps around the start-finish line so a corner near the beginning of the
+    lap still has a meaningful brake window pointing backward through the
+    previous lap section.
+    """
+    if reference_length_m <= 0:
+        return max(0.0, start_distance_m - APPROACH_LEAD_M)
+    return float((start_distance_m - APPROACH_LEAD_M) % reference_length_m)
+
+
+def _build_straight_definitions(
+    corners: list[CornerDefinition],
+    reference_length_m: float,
+) -> list[StraightDefinition]:
+    """Materialize straights as the cyclic gaps between consecutive corners.
+
+    For a closed track with N corners we emit N straights; each straight
+    follows a corner and precedes the next one. If no corners were detected,
+    the entire reference path is a single straight. This keeps the invariant
+    "corners + straights cover the whole track" intact.
+    """
+    if reference_length_m <= 0:
+        return []
+
+    if not corners:
+        return [
+            StraightDefinition(
+                straight_id=1,
+                start_distance_m=0.0,
+                end_distance_m=reference_length_m,
+                length_m=reference_length_m,
+                preceding_corner_id=None,
+                following_corner_id=None,
+                wraps_start_finish=False,
+            )
+        ]
+
+    straights: list[StraightDefinition] = []
+    n = len(corners)
+    for i, corner in enumerate(corners):
+        next_corner = corners[(i + 1) % n]
+        start_d = corner.end_distance_m
+        end_d = next_corner.start_distance_m
+
+        if end_d >= start_d:
+            length = end_d - start_d
+            wraps = False
+        else:
+            length = (reference_length_m - start_d) + end_d
+            wraps = True
+
+        if length <= 0:
+            continue
+
+        straights.append(
+            StraightDefinition(
+                straight_id=len(straights) + 1,
+                start_distance_m=start_d,
+                end_distance_m=end_d,
+                length_m=length,
+                preceding_corner_id=corner.corner_id,
+                following_corner_id=next_corner.corner_id,
+                wraps_start_finish=wraps,
+            )
+        )
+
+    return straights
+
+
+def _build_segmentation_quality(
+    corners: list[CornerDefinition],
+    reference_length_m: float,
+) -> dict[str, Any]:
+    """One-shot trust signal so downstream code can decide whether to act."""
+    if reference_length_m <= 0:
+        return {
+            "corner_count": 0,
+            "compound_corner_count": 0,
+            "wrap_corner_present": False,
+            "fraction_covered_by_corners": 0.0,
+            "min_corner_length_m": None,
+            "max_corner_length_m": None,
+        }
+
+    lengths = [float(corner.length_m) for corner in corners]
+    total_corner_length = sum(lengths)
+    fraction_covered = total_corner_length / reference_length_m if reference_length_m > 0 else 0.0
+    wrap_present = any(
+        corner.start_progress_norm > corner.end_progress_norm for corner in corners
+    )
+    compound_count = sum(1 for corner in corners if corner.is_compound)
+
+    return {
+        "corner_count": len(corners),
+        "compound_corner_count": compound_count,
+        "wrap_corner_present": wrap_present,
+        "fraction_covered_by_corners": float(fraction_covered),
+        "min_corner_length_m": float(min(lengths)) if lengths else None,
+        "max_corner_length_m": float(max(lengths)) if lengths else None,
+    }
 
 
 def _find_sub_apexes_from_segment(
@@ -450,6 +606,7 @@ def _empty_segmentation(reference_path_df: pd.DataFrame) -> TrackSegmentation:
 
     return TrackSegmentation(
         corners=[],
+        straights=_build_straight_definitions([], ref_length),
         reference_lap_number=ref_lap,
         reference_length_m=ref_length,
         curvature_noise_floor=CURVATURE_NOISE_FLOOR,
@@ -459,5 +616,7 @@ def _empty_segmentation(reference_path_df: pd.DataFrame) -> TrackSegmentation:
         min_turning_angle_rad=MIN_TURNING_ANGLE_RAD,
         min_straight_gap_m=MIN_STRAIGHT_GAP_M,
         center_region_fraction=CENTER_REGION_FRACTION,
+        approach_lead_m=APPROACH_LEAD_M,
+        segmentation_quality=_build_segmentation_quality([], ref_length),
         segmentation_version=SEGMENTATION_VERSION,
     )

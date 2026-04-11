@@ -7,17 +7,21 @@ import pandas as pd
 
 from src.core.schemas import REFERENCE_PATH_COLUMNS
 from src.processing.segmentation import (
+    APPROACH_LEAD_M,
     CENTER_REGION_FRACTION,
     CURVATURE_CORNER_THRESHOLD,
     CURVATURE_NOISE_FLOOR,
     MIN_CORNER_LENGTH_M,
     MIN_STRAIGHT_GAP_M,
     MIN_TURNING_ANGLE_RAD,
+    MIN_SUB_APEX_SEPARATION_M,
     SEGMENTATION_VERSION,
     CornerDefinition,
+    StraightDefinition,
     TrackSegmentation,
     segment_track,
     _compute_signed_curvature,
+    _find_prominent_peaks,
     _smooth_curvature,
 )
 
@@ -663,7 +667,8 @@ class TestSerializationFields(unittest.TestCase):
             "curvature_noise_floor", "curvature_corner_threshold",
             "curvature_smoothing_window", "min_corner_length_m",
             "min_turning_angle_rad", "min_straight_gap_m",
-            "center_region_fraction", "corners",
+            "center_region_fraction", "approach_lead_m",
+            "segmentation_quality", "corners", "straights",
         }
         self.assertEqual(set(d.keys()), expected_keys)
 
@@ -679,6 +684,463 @@ class TestNaNHandling(unittest.TestCase):
         df = _build_reference_path_df(x, z)
         result = segment_track(df)
         self.assertIsInstance(result, TrackSegmentation)
+
+
+def _single_corner_path(radius: float = 50.0, arc_degrees: float = 90.0, straight_len: float = 200.0) -> pd.DataFrame:
+    arc_rad = np.radians(arc_degrees)
+    straight1_x, straight1_z = _straight_segment(0, 0, straight_len, 0)
+    end_x, end_z = straight1_x[-1], straight1_z[-1]
+    center_x = end_x
+    center_z = end_z + radius
+    start_angle = -np.pi / 2
+    arc_x, arc_z = _arc_segment(center_x, center_z, radius, start_angle, arc_rad)
+    arc_end_x, arc_end_z = arc_x[-1], arc_z[-1]
+    heading = start_angle + arc_rad + np.pi / 2
+    straight2_x, straight2_z = _straight_segment(arc_end_x, arc_end_z, straight_len, heading)
+    x, z = _concat_segments(
+        (straight1_x, straight1_z),
+        (arc_x, arc_z),
+        (straight2_x, straight2_z),
+    )
+    return _build_reference_path_df(x, z)
+
+
+class TestApproachWindow(unittest.TestCase):
+    """approach_start_distance_m should anchor the braking window."""
+
+    def test_approach_set_relative_to_start(self) -> None:
+        df = _single_corner_path()
+        result = segment_track(df)
+        self.assertEqual(len(result.corners), 1)
+        corner = result.corners[0]
+        reference_length_m = result.reference_length_m
+
+        expected = (corner.start_distance_m - APPROACH_LEAD_M) % reference_length_m
+        self.assertAlmostEqual(corner.approach_start_distance_m, expected, places=6)
+        self.assertGreaterEqual(corner.approach_start_distance_m, 0.0)
+        self.assertLess(corner.approach_start_distance_m, reference_length_m)
+
+    def test_approach_wraps_for_early_corner(self) -> None:
+        # Build a lap where the detected corner starts less than APPROACH_LEAD_M
+        # from the reference origin so the approach has to wrap backward.
+        radius = 40.0
+        arc_x, arc_z = _arc_segment(0.0, radius, radius, -np.pi / 2, np.pi / 2)
+        arc_end_x, arc_end_z = arc_x[-1], arc_z[-1]
+        straight_x, straight_z = _straight_segment(arc_end_x, arc_end_z, 400.0, np.pi / 2)
+
+        x = np.concatenate([arc_x, straight_x[1:]])
+        z = np.concatenate([arc_z, straight_z[1:]])
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+
+        self.assertGreaterEqual(len(result.corners), 1)
+        corner = result.corners[0]
+        if corner.start_distance_m < APPROACH_LEAD_M:
+            self.assertGreater(corner.approach_start_distance_m, corner.start_distance_m)
+            self.assertAlmostEqual(
+                (corner.start_distance_m - corner.approach_start_distance_m) % result.reference_length_m,
+                APPROACH_LEAD_M,
+                places=3,
+            )
+
+    def test_approach_lead_in_segmentation_dict(self) -> None:
+        df = _single_corner_path()
+        result = segment_track(df)
+        self.assertAlmostEqual(result.approach_lead_m, APPROACH_LEAD_M)
+        self.assertAlmostEqual(result.to_dict()["approach_lead_m"], APPROACH_LEAD_M)
+
+
+class TestTrackCornerKey(unittest.TestCase):
+    """track_corner_key should be stable against re-runs of the same geometry."""
+
+    def test_key_format_and_stability(self) -> None:
+        df = _single_corner_path()
+        first = segment_track(df)
+        second = segment_track(df)
+
+        self.assertEqual(len(first.corners), 1)
+        corner = first.corners[0]
+        self.assertTrue(corner.track_corner_key.startswith("c"))
+        # Round-trip: the integer suffix must match the start_distance_m bucket.
+        suffix = int(corner.track_corner_key[1:])
+        self.assertEqual(suffix, int(round(corner.start_distance_m)))
+
+        # Two runs over the same geometry yield identical keys.
+        self.assertEqual(
+            [c.track_corner_key for c in first.corners],
+            [c.track_corner_key for c in second.corners],
+        )
+
+    def test_keys_are_unique_for_well_separated_corners(self) -> None:
+        straight1_x, straight1_z = _straight_segment(0, 0, 200, 0)
+        cx1 = straight1_x[-1]
+        cz1 = straight1_z[-1] + 40
+        arc1_x, arc1_z = _arc_segment(cx1, cz1, 40, -np.pi / 2, np.pi / 2)
+        arc1_end_x, arc1_end_z = arc1_x[-1], arc1_z[-1]
+        straight2_x, straight2_z = _straight_segment(arc1_end_x, arc1_end_z, 200, np.pi / 2)
+        s2_end_x, s2_end_z = straight2_x[-1], straight2_z[-1]
+        cx2 = s2_end_x - 40
+        cz2 = s2_end_z
+        arc2_x, arc2_z = _arc_segment(cx2, cz2, 40, 0, np.pi / 2)
+        arc2_end_x, arc2_end_z = arc2_x[-1], arc2_z[-1]
+        straight3_x, straight3_z = _straight_segment(arc2_end_x, arc2_end_z, 200, np.pi)
+
+        x, z = _concat_segments(
+            (straight1_x, straight1_z),
+            (arc1_x, arc1_z),
+            (straight2_x, straight2_z),
+            (arc2_x, arc2_z),
+            (straight3_x, straight3_z),
+        )
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+
+        keys = [c.track_corner_key for c in result.corners]
+        self.assertEqual(len(keys), len(set(keys)), f"duplicate keys: {keys}")
+
+
+class TestStraights(unittest.TestCase):
+    """Straights should cover the cyclic gaps between corners."""
+
+    def test_single_corner_one_straight(self) -> None:
+        df = _single_corner_path()
+        result = segment_track(df)
+        self.assertEqual(len(result.corners), 1)
+        self.assertEqual(len(result.straights), 1)
+
+        straight = result.straights[0]
+        corner = result.corners[0]
+        self.assertIsInstance(straight, StraightDefinition)
+        self.assertEqual(straight.preceding_corner_id, corner.corner_id)
+        self.assertEqual(straight.following_corner_id, corner.corner_id)
+        self.assertGreater(straight.length_m, 0.0)
+
+    def test_two_corners_two_straights_cyclic(self) -> None:
+        straight1_x, straight1_z = _straight_segment(0, 0, 200, 0)
+        cx1 = straight1_x[-1]
+        cz1 = straight1_z[-1] + 40
+        arc1_x, arc1_z = _arc_segment(cx1, cz1, 40, -np.pi / 2, np.pi / 2)
+        arc1_end_x, arc1_end_z = arc1_x[-1], arc1_z[-1]
+        straight2_x, straight2_z = _straight_segment(arc1_end_x, arc1_end_z, 200, np.pi / 2)
+        s2_end_x, s2_end_z = straight2_x[-1], straight2_z[-1]
+        cx2 = s2_end_x - 40
+        cz2 = s2_end_z
+        arc2_x, arc2_z = _arc_segment(cx2, cz2, 40, 0, np.pi / 2)
+        arc2_end_x, arc2_end_z = arc2_x[-1], arc2_z[-1]
+        straight3_x, straight3_z = _straight_segment(arc2_end_x, arc2_end_z, 200, np.pi)
+
+        x, z = _concat_segments(
+            (straight1_x, straight1_z),
+            (arc1_x, arc1_z),
+            (straight2_x, straight2_z),
+            (arc2_x, arc2_z),
+            (straight3_x, straight3_z),
+        )
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+
+        self.assertEqual(len(result.corners), 2)
+        self.assertEqual(len(result.straights), 2)
+
+        corner_ids = {c.corner_id for c in result.corners}
+        for straight in result.straights:
+            self.assertIn(straight.preceding_corner_id, corner_ids)
+            self.assertIn(straight.following_corner_id, corner_ids)
+            self.assertGreater(straight.length_m, 0.0)
+
+        wrap_count = sum(1 for s in result.straights if s.wraps_start_finish)
+        self.assertEqual(wrap_count, 1, "exactly one cyclic straight should wrap start/finish")
+
+    def test_zero_corners_one_whole_track_straight(self) -> None:
+        x = np.linspace(0, 1000, 1001)
+        z = np.zeros(1001)
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+
+        self.assertEqual(len(result.corners), 0)
+        self.assertEqual(len(result.straights), 1)
+        straight = result.straights[0]
+        self.assertIsNone(straight.preceding_corner_id)
+        self.assertIsNone(straight.following_corner_id)
+        self.assertAlmostEqual(straight.length_m, result.reference_length_m, places=3)
+
+
+class TestSegmentationQuality(unittest.TestCase):
+    """segmentation_quality should summarize the result in one field."""
+
+    def test_quality_fields_on_two_corners(self) -> None:
+        straight1_x, straight1_z = _straight_segment(0, 0, 200, 0)
+        cx1 = straight1_x[-1]
+        cz1 = straight1_z[-1] + 40
+        arc1_x, arc1_z = _arc_segment(cx1, cz1, 40, -np.pi / 2, np.pi / 2)
+        arc1_end_x, arc1_end_z = arc1_x[-1], arc1_z[-1]
+        straight2_x, straight2_z = _straight_segment(arc1_end_x, arc1_end_z, 200, np.pi / 2)
+        s2_end_x, s2_end_z = straight2_x[-1], straight2_z[-1]
+        cx2 = s2_end_x - 40
+        cz2 = s2_end_z
+        arc2_x, arc2_z = _arc_segment(cx2, cz2, 40, 0, np.pi / 2)
+        arc2_end_x, arc2_end_z = arc2_x[-1], arc2_z[-1]
+        straight3_x, straight3_z = _straight_segment(arc2_end_x, arc2_end_z, 200, np.pi)
+
+        x, z = _concat_segments(
+            (straight1_x, straight1_z),
+            (arc1_x, arc1_z),
+            (straight2_x, straight2_z),
+            (arc2_x, arc2_z),
+            (straight3_x, straight3_z),
+        )
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+        quality = result.segmentation_quality
+
+        self.assertEqual(quality["corner_count"], 2)
+        self.assertEqual(quality["compound_corner_count"], 0)
+        self.assertFalse(quality["wrap_corner_present"])
+        self.assertGreater(quality["fraction_covered_by_corners"], 0.0)
+        self.assertLess(quality["fraction_covered_by_corners"], 1.0)
+        self.assertIsNotNone(quality["min_corner_length_m"])
+        self.assertIsNotNone(quality["max_corner_length_m"])
+        self.assertGreaterEqual(quality["max_corner_length_m"], quality["min_corner_length_m"])
+
+    def test_quality_for_zero_corners(self) -> None:
+        x = np.linspace(0, 1000, 1001)
+        z = np.zeros(1001)
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+        quality = result.segmentation_quality
+
+        self.assertEqual(quality["corner_count"], 0)
+        self.assertEqual(quality["compound_corner_count"], 0)
+        self.assertFalse(quality["wrap_corner_present"])
+        self.assertEqual(quality["fraction_covered_by_corners"], 0.0)
+        self.assertIsNone(quality["min_corner_length_m"])
+        self.assertIsNone(quality["max_corner_length_m"])
+
+
+def _two_corner_path() -> pd.DataFrame:
+    straight1_x, straight1_z = _straight_segment(0, 0, 200, 0)
+    cx1 = straight1_x[-1]
+    cz1 = straight1_z[-1] + 40
+    arc1_x, arc1_z = _arc_segment(cx1, cz1, 40, -np.pi / 2, np.pi / 2)
+    arc1_end_x, arc1_end_z = arc1_x[-1], arc1_z[-1]
+    straight2_x, straight2_z = _straight_segment(arc1_end_x, arc1_end_z, 200, np.pi / 2)
+    s2_end_x, s2_end_z = straight2_x[-1], straight2_z[-1]
+    cx2 = s2_end_x - 40
+    cz2 = s2_end_z
+    arc2_x, arc2_z = _arc_segment(cx2, cz2, 40, 0, np.pi / 2)
+    arc2_end_x, arc2_end_z = arc2_x[-1], arc2_z[-1]
+    straight3_x, straight3_z = _straight_segment(arc2_end_x, arc2_end_z, 200, np.pi)
+    x, z = _concat_segments(
+        (straight1_x, straight1_z),
+        (arc1_x, arc1_z),
+        (straight2_x, straight2_z),
+        (arc2_x, arc2_z),
+        (straight3_x, straight3_z),
+    )
+    return _build_reference_path_df(x, z)
+
+
+class TestCornerStraightCoverage(unittest.TestCase):
+    """Corners and straights together must tile [0, reference_length_m] exactly.
+
+    Phase 2's per-segment time-delta math depends on this: the sum of per-corner
+    deltas plus per-straight deltas must equal the whole-lap delta, which is only
+    true if corners and straights partition the reference path with no gaps and
+    no overlap.
+    """
+
+    @staticmethod
+    def _collect_intervals(result: TrackSegmentation) -> list[tuple[float, float]]:
+        """Flatten all corners and straights into distance intervals.
+
+        Wrap-around corners and wrap-around straights are split into two pieces
+        so the resulting interval list can be sorted and checked in linear
+        distance space.
+        """
+        ref_len = result.reference_length_m
+        intervals: list[tuple[float, float]] = []
+
+        for corner in result.corners:
+            if corner.start_distance_m <= corner.end_distance_m:
+                intervals.append((corner.start_distance_m, corner.end_distance_m))
+            else:
+                intervals.append((corner.start_distance_m, ref_len))
+                intervals.append((0.0, corner.end_distance_m))
+
+        for straight in result.straights:
+            if straight.start_distance_m <= straight.end_distance_m:
+                intervals.append((straight.start_distance_m, straight.end_distance_m))
+            else:
+                intervals.append((straight.start_distance_m, ref_len))
+                intervals.append((0.0, straight.end_distance_m))
+
+        return sorted(intervals)
+
+    def _assert_exact_tiling(self, result: TrackSegmentation) -> None:
+        ref_len = result.reference_length_m
+        intervals = self._collect_intervals(result)
+
+        self.assertGreater(len(intervals), 0, "no intervals produced")
+        self.assertAlmostEqual(intervals[0][0], 0.0, places=3, msg=f"first interval does not start at 0: {intervals[0]}")
+        self.assertAlmostEqual(intervals[-1][1], ref_len, places=3, msg=f"last interval does not reach reference_length_m: {intervals[-1]}")
+
+        for earlier, later in zip(intervals, intervals[1:]):
+            self.assertAlmostEqual(
+                earlier[1],
+                later[0],
+                places=3,
+                msg=f"gap or overlap between {earlier} and {later}",
+            )
+
+        total_length = sum(end - start for start, end in intervals)
+        self.assertAlmostEqual(total_length, ref_len, places=3)
+
+    def test_coverage_single_corner(self) -> None:
+        df = _single_corner_path()
+        result = segment_track(df)
+        self._assert_exact_tiling(result)
+
+    def test_coverage_two_corners(self) -> None:
+        df = _two_corner_path()
+        result = segment_track(df)
+        self._assert_exact_tiling(result)
+
+    def test_coverage_zero_corners(self) -> None:
+        x = np.linspace(0, 1000, 1001)
+        z = np.zeros(1001)
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+        self._assert_exact_tiling(result)
+
+    def test_coverage_chicane(self) -> None:
+        straight1_x, straight1_z = _straight_segment(0, 0, 200, 0)
+        cx1 = straight1_x[-1]
+        cz1 = straight1_z[-1] + 30
+        arc1_x, arc1_z = _arc_segment(cx1, cz1, 30, -np.pi / 2, np.pi / 2)
+        arc1_end_x, arc1_end_z = arc1_x[-1], arc1_z[-1]
+        short_straight_x, short_straight_z = _straight_segment(arc1_end_x, arc1_end_z, 20, np.pi / 2)
+        ss_end_x, ss_end_z = short_straight_x[-1], short_straight_z[-1]
+        cx2 = ss_end_x + 30
+        cz2 = ss_end_z
+        arc2_x, arc2_z = _arc_segment(cx2, cz2, 30, np.pi, -np.pi / 2)
+        arc2_end_x, arc2_end_z = arc2_x[-1], arc2_z[-1]
+        straight2_x, straight2_z = _straight_segment(arc2_end_x, arc2_end_z, 200, np.pi / 2)
+        x, z = _concat_segments(
+            (straight1_x, straight1_z),
+            (arc1_x, arc1_z),
+            (short_straight_x, short_straight_z),
+            (arc2_x, arc2_z),
+            (straight2_x, straight2_z),
+        )
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+        self._assert_exact_tiling(result)
+
+
+class TestCompoundCornerEntryExit(unittest.TestCase):
+    """For compound corners, entry_end == start and exit_start == end."""
+
+    def test_chicane_has_whole_region_as_apex(self) -> None:
+        straight1_x, straight1_z = _straight_segment(0, 0, 200, 0)
+        cx1 = straight1_x[-1]
+        cz1 = straight1_z[-1] + 30
+        arc1_x, arc1_z = _arc_segment(cx1, cz1, 30, -np.pi / 2, np.pi / 2)
+        arc1_end_x, arc1_end_z = arc1_x[-1], arc1_z[-1]
+        short_straight_x, short_straight_z = _straight_segment(arc1_end_x, arc1_end_z, 20, np.pi / 2)
+        ss_end_x, ss_end_z = short_straight_x[-1], short_straight_z[-1]
+        cx2 = ss_end_x + 30
+        cz2 = ss_end_z
+        arc2_x, arc2_z = _arc_segment(cx2, cz2, 30, np.pi, -np.pi / 2)
+        arc2_end_x, arc2_end_z = arc2_x[-1], arc2_z[-1]
+        straight2_x, straight2_z = _straight_segment(arc2_end_x, arc2_end_z, 200, np.pi / 2)
+
+        x, z = _concat_segments(
+            (straight1_x, straight1_z),
+            (arc1_x, arc1_z),
+            (short_straight_x, short_straight_z),
+            (arc2_x, arc2_z),
+            (straight2_x, straight2_z),
+        )
+        df = _build_reference_path_df(x, z)
+        result = segment_track(df)
+
+        self.assertEqual(len(result.corners), 1)
+        corner = result.corners[0]
+        self.assertTrue(corner.is_compound)
+        self.assertAlmostEqual(corner.entry_end_progress_norm, corner.start_progress_norm, places=6)
+        self.assertAlmostEqual(corner.exit_start_progress_norm, corner.end_progress_norm, places=6)
+
+
+class TestSubApexProminenceEdgeCases(unittest.TestCase):
+    """Verify _find_prominent_peaks handles three-peak configurations correctly."""
+
+    def test_three_prominent_well_separated_peaks_all_kept(self) -> None:
+        """Three sharp peaks, 6m apart, deep valleys between — all retained."""
+        n = 17
+        segment_abs = np.full(n, 0.001, dtype=float)
+        for i in (1, 7, 13):
+            segment_abs[i] = 0.5
+            segment_abs[i + 1] = 1.0
+            segment_abs[i + 2] = 0.5
+        segment_dist = np.arange(n, dtype=float)
+
+        peaks = _find_prominent_peaks(segment_abs, segment_dist)
+        self.assertEqual(sorted(peaks), [2, 8, 14])
+
+    def test_three_close_peaks_collapse_to_tallest(self) -> None:
+        """Three candidate peaks packed inside MIN_SUB_APEX_SEPARATION_M collapse to the global max."""
+        self.assertLess(4.0, MIN_SUB_APEX_SEPARATION_M)
+
+        segment_abs = np.array(
+            [0.001, 0.5, 0.2, 1.0, 0.2, 0.8, 0.001],
+            dtype=float,
+        )
+        segment_dist = np.arange(len(segment_abs), dtype=float)
+
+        peaks = _find_prominent_peaks(segment_abs, segment_dist)
+        self.assertEqual(peaks, [3])
+
+    def test_three_peaks_shallow_middle_still_resolves(self) -> None:
+        """Tall outer peaks and a barely-above-noise middle: all three are local maxima,
+        the middle is kept if prominence math accepts it, but the outer two must survive
+        regardless and retain ordering."""
+        n = 19
+        segment_abs = np.full(n, 0.001, dtype=float)
+        segment_abs[1] = 0.4
+        segment_abs[2] = 1.0
+        segment_abs[3] = 0.4
+        segment_abs[8] = 0.05
+        segment_abs[9] = 0.10
+        segment_abs[10] = 0.05
+        segment_abs[15] = 0.4
+        segment_abs[16] = 1.0
+        segment_abs[17] = 0.4
+        segment_dist = np.arange(n, dtype=float)
+
+        peaks = _find_prominent_peaks(segment_abs, segment_dist)
+        peaks_sorted = sorted(peaks)
+
+        self.assertIn(2, peaks_sorted)
+        self.assertIn(16, peaks_sorted)
+        self.assertEqual(peaks_sorted, sorted(set(peaks_sorted)))
+
+    def test_three_peaks_ascending_heights(self) -> None:
+        """P1 < P2 < P3 all well separated with deep valleys — all three should be retained."""
+        n = 19
+        segment_abs = np.full(n, 0.001, dtype=float)
+        segment_abs[1] = 0.3
+        segment_abs[2] = 0.6
+        segment_abs[3] = 0.3
+        segment_abs[8] = 0.4
+        segment_abs[9] = 0.8
+        segment_abs[10] = 0.4
+        segment_abs[15] = 0.5
+        segment_abs[16] = 1.0
+        segment_abs[17] = 0.5
+        segment_dist = np.arange(n, dtype=float)
+
+        peaks = _find_prominent_peaks(segment_abs, segment_dist)
+        self.assertEqual(sorted(peaks), [2, 9, 16])
 
 
 if __name__ == "__main__":
