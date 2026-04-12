@@ -41,6 +41,12 @@ class ApiAppTests(unittest.TestCase):
         self.assertIn("/api/compare/laps/candidates", paths)
         self.assertIn("/api/compare/laps", paths)
 
+    def test_app_registers_analysis_routes(self) -> None:
+        paths = {route.path for route in app.routes}
+
+        self.assertIn("/api/sessions/{session_id}/analyze", paths)
+        self.assertIn("/api/sessions/{session_id}/analysis", paths)
+
 
 if __name__ == "__main__":
     unittest.main()

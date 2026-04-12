@@ -144,3 +144,45 @@ export interface TrackSegmentation {
   reference_length_m: number;
   corners: CornerDefinition[];
 }
+
+export interface AnalysisFinding {
+  finding_id: string;
+  corner_id: number;
+  lap_number: number;
+  detector: string;
+  severity: "minor" | "moderate" | "major";
+  confidence: number;
+  time_loss_s: number;
+  templated_text: string;
+  evidence_refs: Array<{
+    column?: string;
+    progress_start?: number;
+    progress_end?: number;
+    [key: string]: unknown;
+  }>;
+  metrics_snapshot: Record<string, unknown>;
+}
+
+export interface SessionAnalysis {
+  analysis_version: string;
+  session_id: string;
+  reference_lap_number: number;
+  analyzed_at_utc: string;
+  per_corner_records: Record<string, unknown[]>;
+  per_corner_baselines: Record<string, unknown>;
+  straight_records: unknown[];
+  findings_top: AnalysisFinding[];
+  findings_all: AnalysisFinding[];
+  lap_time_delta_reconciliation: Record<string, Record<string, number>>;
+  quality_report: Record<string, unknown>;
+}
+
+export interface AnalyzeSessionResponse {
+  session_id: string;
+  analysis_version: string;
+  analyzed_at_utc: string;
+  corner_record_count: number;
+  findings_top_count: number;
+  findings_all_count: number;
+  artifact_path: string;
+}

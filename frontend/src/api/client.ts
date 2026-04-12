@@ -1,4 +1,5 @@
 import type {
+  AnalyzeSessionResponse,
   CaptureStartRequest,
   CaptureStatus,
   CompareCandidatesResponse,
@@ -7,6 +8,7 @@ import type {
   LapOverlayResponse,
   LapOverlaySelection,
   ProcessResponse,
+  SessionAnalysis,
   SessionDetail,
   SessionSummary,
   SessionUpdateRequest,
@@ -91,4 +93,12 @@ export const api = {
 
   stopCapture: () =>
     fetchJson<CaptureStatus>("/capture/stop", { method: "POST" }),
+
+  analyzeSession: (id: string) =>
+    fetchJson<AnalyzeSessionResponse>(`/sessions/${id}/analyze`, {
+      method: "POST",
+    }),
+
+  getSessionAnalysis: (id: string) =>
+    fetchJson<SessionAnalysis>(`/sessions/${id}/analysis`),
 };

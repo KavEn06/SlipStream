@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
+import { CornerAnalysisPanel } from "../components/CornerAnalysisPanel";
 import { SurfaceMessage, SurfaceSkeleton } from "../components/PageState";
 import { StatusBadge } from "../components/StatusBadge";
 import { useCaptureController } from "../hooks/useCaptureController";
@@ -452,6 +453,10 @@ export function SessionDetailPage() {
           tone="danger"
           className="text-left"
         />
+      )}
+
+      {session.has_processed && sessionId && (
+        <CornerAnalysisPanel sessionId={sessionId} enabled={session.has_processed} />
       )}
 
       <section className="density-detail-panel rounded-[28px] border border-border/70 bg-surface-1/85">
