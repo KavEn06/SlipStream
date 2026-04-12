@@ -5,6 +5,7 @@ import { useCaptureController } from "../hooks/useCaptureController";
 export const NAV_ITEMS = [
   { path: "/", label: "Home" },
   { path: "/sessions", label: "Sessions" },
+  { path: "/analysis", label: "Analysis" },
   { path: "/compare/laps", label: "Compare" },
 ] as const;
 
@@ -15,6 +16,10 @@ function isNavItemActive(pathname: string, path: string): boolean {
 
   if (path === "/sessions") {
     return pathname.startsWith("/sessions");
+  }
+
+  if (path === "/analysis") {
+    return pathname.startsWith("/analysis");
   }
 
   if (path === "/compare/laps") {
@@ -105,6 +110,42 @@ function CompareIcon() {
   );
 }
 
+function AnalysisIcon() {
+  return (
+    <svg
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+        d="M5.25 18.75V11.25"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+        d="M12 18.75V7.5"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+        d="M18.75 18.75V4.5"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+        d="M3.75 19.5h16.5"
+      />
+    </svg>
+  );
+}
+
 function AppearanceIcon() {
   return (
     <svg
@@ -129,6 +170,10 @@ function getItemIcon(path: string) {
 
   if (path === "/compare/laps") {
     return <CompareIcon />;
+  }
+
+  if (path === "/analysis") {
+    return <AnalysisIcon />;
   }
 
   return <SessionsIcon />;

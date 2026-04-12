@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
-import type { AnalysisFinding, SessionAnalysis } from "../types";
+import type { AnalysisFinding, CornerDefinition, SessionAnalysis } from "../types";
+import { CornerDetailView } from "./CornerDetailView";
 
 interface Props {
   sessionId: string;
@@ -29,10 +30,24 @@ function formatSecondsLost(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(3)}s`;
 }
 
-function FindingCard({ finding }: { finding: AnalysisFinding }) {
+interface FindingCardProps {
+  finding: AnalysisFinding;
+  selected: boolean;
+  onClick: () => void;
+}
+
+function FindingCard({ finding, selected, onClick }: FindingCardProps) {
   const tone = SEVERITY_TONE[finding.severity] ?? SEVERITY_TONE.minor;
   return (
-    <div className="rounded-2xl border border-border/70 bg-surface-2/78 p-4">
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full rounded-2xl border p-4 text-left transition-colors cursor-pointer ${
+        selected
+          ? "border-accent/50 bg-accent/8 ring-1 ring-accent/25"
+          : "border-border/70 bg-surface-2/78 hover:border-border-strong hover:bg-surface-2/90"
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
@@ -56,8 +71,11 @@ function FindingCard({ finding }: { finding: AnalysisFinding }) {
       <p className="mt-3 text-sm text-text-secondary">{finding.templated_text}</p>
       <p className="mt-2 text-[10px] uppercase tracking-[0.16em] text-text-muted">
         Confidence {(finding.confidence * 100).toFixed(0)}%
+        {selected && (
+          <span className="ml-2 text-accent/80">· tap again to collapse</span>
+        )}
       </p>
-    </div>
+    </button>
   );
 }
 
@@ -67,6 +85,7 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!enabled) return;
@@ -77,8 +96,10 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
       setAnalysis(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load analysis";
-      if (message.toLowerCase().includes("analysis not available") ||
-          message.toLowerCase().includes("not found")) {
+      if (
+        message.toLowerCase().includes("analysis not available") ||
+        message.toLowerCase().includes("not found")
+      ) {
         setAnalysis(null);
       } else {
         setError(message);
@@ -95,6 +116,7 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
   const handleRun = async () => {
     setRunning(true);
     setError(null);
+    setSelectedFindingId(null);
     try {
       await api.analyzeSession(sessionId);
       await load();
@@ -111,8 +133,15 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
 
   const findings = showAll ? analysis?.findings_all ?? [] : analysis?.findings_top ?? [];
 
+  const selectedFinding = selectedFindingId
+    ? findings.find((f) => f.finding_id === selectedFindingId) ?? null
+    : null;
+
+  const cornerDefForFinding = (finding: AnalysisFinding): CornerDefinition | undefined =>
+    analysis?.corner_definitions?.find((c) => c.corner_id === finding.corner_id);
+
   return (
-    <section className="density-detail-panel rounded-[28px] border border-border/70 bg-surface-1/85">
+    <div>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-text-muted">
@@ -123,8 +152,8 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
           </h3>
           {analysis && (
             <p className="mt-1 text-xs text-text-muted">
-              Reference lap {analysis.reference_lap_number} · {analysis.findings_all.length} finding
-              {analysis.findings_all.length === 1 ? "" : "s"} ·{" "}
+              Reference lap {analysis.reference_lap_number} · {analysis.findings_all.length}{" "}
+              finding{analysis.findings_all.length === 1 ? "" : "s"} ·{" "}
               {analysis.analysis_version}
             </p>
           )}
@@ -155,15 +184,48 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
         </p>
       ) : findings.length === 0 ? (
         <p className="mt-5 text-sm text-text-muted">
-          No findings emitted — all corners are clean or differences are below the coaching threshold.
+          No findings emitted — all corners are clean or differences are below the coaching
+          threshold.
         </p>
       ) : (
         <>
           <div className="mt-5 grid gap-3 md:grid-cols-2">
             {findings.map((finding) => (
-              <FindingCard key={finding.finding_id} finding={finding} />
+              <FindingCard
+                key={finding.finding_id}
+                finding={finding}
+                selected={finding.finding_id === selectedFindingId}
+                onClick={() =>
+                  setSelectedFindingId((prev) =>
+                    prev === finding.finding_id ? null : finding.finding_id,
+                  )
+                }
+              />
             ))}
           </div>
+
+          {/* Detail panel — shown when a finding is selected */}
+          {selectedFinding && (() => {
+            const cornerDef = cornerDefForFinding(selectedFinding);
+            if (!cornerDef || !analysis.reference_length_m) return null;
+            return (
+              <div className="mt-4 rounded-2xl border border-border/60 bg-surface-2/50 p-4">
+                <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.16em] text-text-muted">
+                  T{selectedFinding.corner_id} · {humanizeDetector(selectedFinding.detector)}
+                  {" · "}
+                  <span className="text-accent/80">{cornerDef.direction} corner</span>
+                </p>
+                <CornerDetailView
+                  finding={selectedFinding}
+                  cornerDef={cornerDef}
+                  sessionId={sessionId}
+                  baselineLapNumber={analysis.reference_lap_number}
+                  referenceLengthM={analysis.reference_length_m}
+                />
+              </div>
+            );
+          })()}
+
           {analysis.findings_all.length > analysis.findings_top.length && (
             <button
               type="button"
@@ -177,6 +239,6 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
           )}
         </>
       )}
-    </section>
+    </div>
   );
 }

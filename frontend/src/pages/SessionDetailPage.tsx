@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import { CornerAnalysisPanel } from "../components/CornerAnalysisPanel";
 import { SurfaceMessage, SurfaceSkeleton } from "../components/PageState";
 import { StatusBadge } from "../components/StatusBadge";
 import { useCaptureController } from "../hooks/useCaptureController";
@@ -305,7 +304,7 @@ export function SessionDetailPage() {
   }
 
   return (
-    <div className="density-detail-stack max-w-5xl">
+    <div className="density-detail-stack max-w-[1200px]">
       <section className="sticky top-4 z-20 overflow-hidden rounded-[28px] border border-border/70 bg-surface-1/92 backdrop-blur-xl relative">
         <div className="hero-overlay pointer-events-none absolute inset-0" />
         <div className="hero-band pointer-events-none absolute -left-16 top-8 h-24 w-56 rotate-[-16deg]" />
@@ -384,6 +383,14 @@ export function SessionDetailPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              {session.has_processed && (
+                <Link
+                  to={`/analysis?${new URLSearchParams({ sessionId: session.session_id }).toString()}`}
+                  className="inline-flex h-10 items-center rounded-full border border-accent/24 bg-accent/12 px-4 text-sm font-medium text-accent transition-colors hover:bg-accent/18"
+                >
+                  Open Analysis
+                </Link>
+              )}
               <Link
                 to={`/compare/laps?${new URLSearchParams({ sessionId: session.session_id }).toString()}`}
                 className="inline-flex h-10 items-center rounded-full border border-border/70 bg-surface-2/84 px-4 text-sm font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-3 hover:text-text-primary"
@@ -455,151 +462,143 @@ export function SessionDetailPage() {
         />
       )}
 
-      {session.has_processed && sessionId && (
-        <CornerAnalysisPanel sessionId={sessionId} enabled={session.has_processed} />
-      )}
-
-      <section className="density-detail-panel rounded-[28px] border border-border/70 bg-surface-1/85">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            {(
-              [
-                ["all", "All"],
-                ["processed", "Processed"],
-                ["raw", "Raw"],
-                ["valid", "Valid"],
-                ["invalid", "Invalid"],
-              ] as const
-            ).map(([value, label]) => {
-              const active = lapFilter === value;
-
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setLapFilter(value)}
-                  className={`motion-safe-color inline-flex h-9 items-center rounded-full border px-4 text-xs font-medium uppercase tracking-[0.14em] cursor-pointer ${
-                    active
-                      ? "border-accent/24 bg-accent/12 text-accent"
-                      : "border-border/70 bg-surface-2/84 text-text-secondary hover:border-border-strong hover:bg-surface-3 hover:text-text-primary"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-
-          <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
-            {filteredLaps.length} shown / {session.laps.length} total
-          </p>
-        </div>
-      </section>
-
-      {filteredLaps.length === 0 ? (
-        <SurfaceMessage
-          title="No laps match the current filter"
-          message="Choose a different lap filter to view more session data."
-        />
-      ) : (
-        <div className="overflow-hidden rounded-3xl border border-border/70 bg-surface-1/85">
-          <div className="density-detail-table-shell overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border/60 text-[11px] uppercase tracking-[0.16em] text-text-muted">
-                  <th className="density-detail-table-cell text-left font-medium">Lap</th>
-                  <th className="density-detail-table-cell text-left font-medium">Time</th>
-                  <th className="density-detail-table-cell text-left font-medium">Valid</th>
-                  <th className="density-detail-table-cell text-left font-medium">Data</th>
-                  <th className="density-detail-table-cell" />
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLaps.map((lap) => (
-                  <tr
-                    key={lap.lap_number}
-                    tabIndex={0}
-                    role="link"
-                    aria-label={`Open Lap ${lap.lap_number} review`}
-                    onClick={() => openLapReview(lap.lap_number)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        openLapReview(lap.lap_number);
-                      }
-                    }}
-                    className="cursor-pointer border-b border-border/60 transition-colors hover:bg-surface-2/78 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-[-2px]"
+      <div className="flex flex-col gap-5">
+        <section className="density-detail-panel rounded-[28px] border border-border/70 bg-surface-1/85">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  ["all", "All"],
+                  ["processed", "Processed"],
+                  ["raw", "Raw"],
+                  ["valid", "Valid"],
+                  ["invalid", "Invalid"],
+                ] as const
+              ).map(([value, label]) => {
+                const active = lapFilter === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setLapFilter(value)}
+                    className={`motion-safe-color inline-flex h-9 items-center rounded-full border px-4 text-xs font-medium uppercase tracking-[0.14em] cursor-pointer ${
+                      active
+                        ? "border-accent/24 bg-accent/12 text-accent"
+                        : "border-border/70 bg-surface-2/84 text-text-secondary hover:border-border-strong hover:bg-surface-3 hover:text-text-primary"
+                    }`}
                   >
-                    <td className="density-detail-table-cell font-medium text-text-primary">
-                      Lap {lap.lap_number}
-                    </td>
-                    <td className="density-detail-table-cell font-mono text-text-secondary">
-                      {formatTime(lap.lap_time_s)}
-                    </td>
-                    <td className="density-detail-table-cell">
-                      {lap.is_valid === null ? (
-                        <span className="text-text-muted">--</span>
-                      ) : lap.is_valid ? (
-                        <span className="text-xs font-medium text-success">
-                          Valid
-                        </span>
-                      ) : (
-                        <span className="text-xs font-medium text-danger">
-                          Invalid
-                        </span>
-                      )}
-                    </td>
-                    <td className="density-detail-table-cell space-x-2">
-                      {lap.has_raw && (
-                        <span className="rounded-full border border-border/70 bg-surface-2/86 px-2.5 py-1 text-[11px] text-text-secondary">
-                          Raw
-                        </span>
-                      )}
-                      {lap.has_processed && (
-                        <span className="rounded-full bg-accent/10 px-2.5 py-1 text-[11px] text-accent">
-                          Processed
-                        </span>
-                      )}
-                    </td>
-                    <td
-                      className="density-detail-table-cell text-right"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <div className="flex items-center justify-end gap-3">
-                        <Link
-                          to={`/sessions/${session.session_id}/laps/${lap.lap_number}`}
-                          className="text-xs font-medium text-accent hover:underline"
-                        >
-                          Review
-                        </Link>
-                        <Link
-                          to={`/compare/laps?${new URLSearchParams({
-                            sessionId: session.session_id,
-                            lapNumber: String(lap.lap_number),
-                          }).toString()}`}
-                          className="text-xs font-medium text-text-secondary hover:text-text-primary hover:underline"
-                        >
-                          Compare
-                        </Link>
-                        <SplitDeleteButton
-                          confirming={confirmingLapDelete === lap.lap_number}
-                          busy={deletingLapNumber === lap.lap_number}
-                          idleLabel="Delete"
-                          busyLabel="..."
-                          onStart={() => setConfirmingLapDelete(lap.lap_number)}
-                          onConfirm={() => handleDeleteLap(lap.lap_number)}
-                          onCancel={() => setConfirmingLapDelete(null)}
-                          compact
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
+              {filteredLaps.length} shown / {session.laps.length} total
+            </p>
           </div>
-        </div>
-      )}
+        </section>
+
+        {filteredLaps.length === 0 ? (
+          <SurfaceMessage
+            title="No laps match the current filter"
+            message="Choose a different lap filter to view more session data."
+          />
+        ) : (
+          <div className="overflow-hidden rounded-3xl border border-border/70 bg-surface-1/85">
+            <div className="density-detail-table-shell overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/60 text-[11px] uppercase tracking-[0.16em] text-text-muted">
+                    <th className="density-detail-table-cell text-left font-medium">Lap</th>
+                    <th className="density-detail-table-cell text-left font-medium">Time</th>
+                    <th className="density-detail-table-cell text-left font-medium">Valid</th>
+                    <th className="density-detail-table-cell text-left font-medium">Data</th>
+                    <th className="density-detail-table-cell" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredLaps.map((lap) => (
+                    <tr
+                      key={lap.lap_number}
+                      tabIndex={0}
+                      role="link"
+                      aria-label={`Open Lap ${lap.lap_number} review`}
+                      onClick={() => openLapReview(lap.lap_number)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openLapReview(lap.lap_number);
+                        }
+                      }}
+                      className="cursor-pointer border-b border-border/60 transition-colors hover:bg-surface-2/78 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-[-2px]"
+                    >
+                      <td className="density-detail-table-cell font-medium text-text-primary">
+                        Lap {lap.lap_number}
+                      </td>
+                      <td className="density-detail-table-cell font-mono text-text-secondary">
+                        {formatTime(lap.lap_time_s)}
+                      </td>
+                      <td className="density-detail-table-cell">
+                        {lap.is_valid === null ? (
+                          <span className="text-text-muted">--</span>
+                        ) : lap.is_valid ? (
+                          <span className="text-xs font-medium text-success">Valid</span>
+                        ) : (
+                          <span className="text-xs font-medium text-danger">Invalid</span>
+                        )}
+                      </td>
+                      <td className="density-detail-table-cell space-x-2">
+                        {lap.has_raw && (
+                          <span className="rounded-full border border-border/70 bg-surface-2/86 px-2.5 py-1 text-[11px] text-text-secondary">
+                            Raw
+                          </span>
+                        )}
+                        {lap.has_processed && (
+                          <span className="rounded-full bg-accent/10 px-2.5 py-1 text-[11px] text-accent">
+                            Processed
+                          </span>
+                        )}
+                      </td>
+                      <td
+                        className="density-detail-table-cell text-right"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-end gap-3">
+                          <Link
+                            to={`/sessions/${session.session_id}/laps/${lap.lap_number}`}
+                            className="text-xs font-medium text-accent hover:underline"
+                          >
+                            Review
+                          </Link>
+                          <Link
+                            to={`/compare/laps?${new URLSearchParams({
+                              sessionId: session.session_id,
+                              lapNumber: String(lap.lap_number),
+                            }).toString()}`}
+                            className="text-xs font-medium text-text-secondary hover:text-text-primary hover:underline"
+                          >
+                            Compare
+                          </Link>
+                          <SplitDeleteButton
+                            confirming={confirmingLapDelete === lap.lap_number}
+                            busy={deletingLapNumber === lap.lap_number}
+                            idleLabel="Delete"
+                            busyLabel="..."
+                            onStart={() => setConfirmingLapDelete(lap.lap_number)}
+                            onConfirm={() => handleDeleteLap(lap.lap_number)}
+                            onCancel={() => setConfirmingLapDelete(null)}
+                            compact
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

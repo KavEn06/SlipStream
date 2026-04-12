@@ -28,6 +28,9 @@ export function Layout({ children }: { children: ReactNode }) {
     if (location.pathname === "/sessions") {
       return { eyebrow: "Library", title: "Sessions" };
     }
+    if (location.pathname === "/analysis") {
+      return { eyebrow: "Analysis", title: "Session Analysis" };
+    }
     if (/^\/sessions\/[^/]+\/laps\/[^/]+$/.test(location.pathname)) {
       return { eyebrow: "Analysis", title: "Lap Review" };
     }

@@ -132,6 +132,17 @@ def get_session_detail(session_id: str) -> dict | None:
     }
 
 
+def get_session_lap_number_mapping(session_id: str) -> dict[str, dict[int, int]]:
+    raw_dir = RAW_DATA_ROOT / session_id
+    processed_dir = PROCESSED_DATA_ROOT / session_id
+    metadata = (_load_metadata(raw_dir) or {}) | (_load_metadata(processed_dir) or {})
+    return _build_session_lap_number_mapping(
+        _get_lap_files(raw_dir),
+        _get_lap_files(processed_dir),
+        metadata,
+    )
+
+
 def update_session_metadata(session_id: str, *, display_name: str | None) -> dict | None:
     updated = False
     normalized_display_name = _normalize_display_name(display_name)

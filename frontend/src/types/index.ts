@@ -124,6 +124,7 @@ export interface CornerDefinition {
   start_progress_norm: number;
   end_progress_norm: number;
   center_progress_norm: number;
+  approach_start_distance_m: number;
   start_distance_m: number;
   end_distance_m: number;
   center_distance_m: number;
@@ -168,6 +169,8 @@ export interface SessionAnalysis {
   session_id: string;
   reference_lap_number: number;
   analyzed_at_utc: string;
+  reference_length_m: number;
+  corner_definitions: CornerDefinition[];
   per_corner_records: Record<string, unknown[]>;
   per_corner_baselines: Record<string, unknown>;
   straight_records: unknown[];

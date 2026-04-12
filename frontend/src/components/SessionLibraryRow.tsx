@@ -81,23 +81,32 @@ export function SessionLibraryRow({
 
         <StatusBadge processed={session.has_processed} />
 
-        {!session.has_processed && onProcess && (
-          <div className="flex flex-col items-start gap-1 lg:items-end">
-            <button
-              type="button"
-              onClick={() => onProcess(session.session_id)}
-              disabled={processDisabled}
-              title={processDisabledReason ?? undefined}
-              className="density-library-inline-action inline-flex items-center rounded-full border border-accent/20 bg-accent/10 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:bg-accent/16 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-            >
-              {isProcessing ? "Working" : "Process"}
-            </button>
-            {processDisabledReason && (
-              <p className="text-[10px] uppercase tracking-[0.14em] text-text-muted">
-                {processDisabledReason}
-              </p>
-            )}
-          </div>
+        {session.has_processed ? (
+          <Link
+            to={`/analysis?${new URLSearchParams({ sessionId: session.session_id }).toString()}`}
+            className="density-library-inline-action inline-flex items-center rounded-full border border-accent/20 bg-accent/10 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:bg-accent/16"
+          >
+            Analyze
+          </Link>
+        ) : (
+          onProcess && (
+            <div className="flex flex-col items-start gap-1 lg:items-end">
+              <button
+                type="button"
+                onClick={() => onProcess(session.session_id)}
+                disabled={processDisabled}
+                title={processDisabledReason ?? undefined}
+                className="density-library-inline-action inline-flex items-center rounded-full border border-accent/20 bg-accent/10 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.16em] text-accent transition-colors hover:bg-accent/16 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+              >
+                {isProcessing ? "Working" : "Process"}
+              </button>
+              {processDisabledReason && (
+                <p className="text-[10px] uppercase tracking-[0.14em] text-text-muted">
+                  {processDisabledReason}
+                </p>
+              )}
+            </div>
+          )
         )}
 
         <Link

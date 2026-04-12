@@ -12,6 +12,9 @@ const SessionsPage = lazy(async () => ({
 const SessionDetailPage = lazy(async () => ({
   default: (await import("./pages/SessionDetailPage")).SessionDetailPage,
 }));
+const AnalysisPage = lazy(async () => ({
+  default: (await import("./pages/AnalysisPage")).AnalysisPage,
+}));
 const LapReviewPage = lazy(async () => ({
   default: (await import("./pages/LapReviewPage")).LapReviewPage,
 }));
@@ -49,6 +52,14 @@ export default function App() {
             element={
               <RouteElement>
                 <SessionDetailPage />
+              </RouteElement>
+            }
+          />
+          <Route
+            path="/analysis"
+            element={
+              <RouteElement>
+                <AnalysisPage />
               </RouteElement>
             }
           />

@@ -61,6 +61,8 @@ class SessionAnalysis:
     findings_top: list[Finding]
     findings_all: list[Finding]
     lap_time_delta_reconciliation: dict[int, dict[str, float]]
+    corner_definitions: list[CornerDefinition] = field(default_factory=list)
+    reference_length_m: float = 0.0
     quality_report: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -69,6 +71,8 @@ class SessionAnalysis:
             "session_id": self.session_id,
             "reference_lap_number": self.reference_lap_number,
             "analyzed_at_utc": self.analyzed_at_utc,
+            "reference_length_m": self.reference_length_m,
+            "corner_definitions": [asdict(c) for c in self.corner_definitions],
             "per_corner_records": {
                 str(corner_id): [r.to_dict() for r in records]
                 for corner_id, records in self.per_corner_records.items()
@@ -188,6 +192,8 @@ def run(
         session_id=session_id,
         reference_lap_number=int(segmentation.reference_lap_number),
         analyzed_at_utc=datetime.now(timezone.utc).isoformat(),
+        corner_definitions=segmentation.corners,
+        reference_length_m=segmentation.reference_length_m,
         per_corner_records=records_by_corner,
         per_corner_baselines=baselines,
         straight_records=all_straights,
