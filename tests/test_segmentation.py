@@ -1038,9 +1038,9 @@ class TestCornerStraightCoverage(unittest.TestCase):
 
 
 class TestCompoundCornerEntryExit(unittest.TestCase):
-    """For compound corners, entry_end == start and exit_start == end."""
+    """Compound corners use first/last sub-apex to anchor a 3-phase split."""
 
-    def test_chicane_has_whole_region_as_apex(self) -> None:
+    def test_chicane_has_sub_apex_anchored_phases(self) -> None:
         straight1_x, straight1_z = _straight_segment(0, 0, 200, 0)
         cx1 = straight1_x[-1]
         cz1 = straight1_z[-1] + 30
@@ -1067,8 +1067,25 @@ class TestCompoundCornerEntryExit(unittest.TestCase):
         self.assertEqual(len(result.corners), 1)
         corner = result.corners[0]
         self.assertTrue(corner.is_compound)
-        self.assertAlmostEqual(corner.entry_end_progress_norm, corner.start_progress_norm, places=6)
-        self.assertAlmostEqual(corner.exit_start_progress_norm, corner.end_progress_norm, places=6)
+
+        # entry_end is anchored on the first sub-apex, not the corner start
+        self.assertGreater(corner.entry_end_progress_norm, corner.start_progress_norm)
+        # exit_start is anchored on the last sub-apex, not the corner end
+        self.assertLess(corner.exit_start_progress_norm, corner.end_progress_norm)
+        # the center region spans between the two sub-apexes
+        self.assertLess(corner.entry_end_progress_norm, corner.exit_start_progress_norm)
+        # entry_end matches the first sub-apex progress
+        self.assertAlmostEqual(
+            corner.entry_end_progress_norm,
+            corner.sub_apex_progress_norms[0],
+            places=6,
+        )
+        # exit_start matches the last sub-apex progress
+        self.assertAlmostEqual(
+            corner.exit_start_progress_norm,
+            corner.sub_apex_progress_norms[-1],
+            places=6,
+        )
 
 
 class TestSubApexProminenceEdgeCases(unittest.TestCase):

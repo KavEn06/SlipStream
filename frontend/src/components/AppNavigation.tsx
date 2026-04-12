@@ -5,8 +5,8 @@ import { useCaptureController } from "../hooks/useCaptureController";
 export const NAV_ITEMS = [
   { path: "/", label: "Home" },
   { path: "/sessions", label: "Sessions" },
-  { path: "/analysis", label: "Analysis" },
   { path: "/compare/laps", label: "Compare" },
+  { path: "/analysis", label: "Analysis" },
 ] as const;
 
 function isNavItemActive(pathname: string, path: string): boolean {

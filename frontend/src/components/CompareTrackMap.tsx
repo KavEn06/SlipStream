@@ -16,9 +16,15 @@ const MIN_PITCH = -1.35;
 const MAX_PITCH = 1.35;
 const THREE_D_OUTLINE_OUTER_WIDTH = 6.8;
 const THREE_D_OUTLINE_INNER_WIDTH = 4.4;
-const THREE_D_REFERENCE_WIDTH = 2.2;
-const THREE_D_OTHER_WIDTH = 1.65;
+const TRACK_ENVELOPE_OUTER_WIDTH = 18;
+const TRACK_ENVELOPE_INNER_WIDTH = 13.5;
+const REFERENCE_LINE_UNDERLAY_WIDTH = 3.0;
+const OTHER_LINE_UNDERLAY_WIDTH = 3.0;
+const REFERENCE_LINE_WIDTH = 1.1;
+const OTHER_LINE_WIDTH = 1.05;
 const MAP_HOVER_SNAP_PX = 28;
+const FOCUS_PADDING_PX = 42;
+const MIN_FOCUS_SPAN_PX = 36;
 
 const CORNER_ENTRY_COLOR = "rgba(59,130,246,0.55)";
 const CORNER_CENTER_COLOR = "rgba(249,115,22,0.60)";
@@ -46,6 +52,10 @@ interface Props {
   height?: number;
   className?: string;
   corners?: CornerDefinition[] | null;
+  focusStartProgressNorm?: number | null;
+  focusEndProgressNorm?: number | null;
+  autoFocusKey?: string | number | null;
+  showTrackEnvelope?: boolean;
 }
 
 interface TrackPoint {
@@ -276,6 +286,20 @@ function buildCornerSegments(
   return segments;
 }
 
+function progressInRange(
+  progress: number | null,
+  start: number,
+  end: number,
+): boolean {
+  if (progress === null) {
+    return false;
+  }
+  if (start <= end) {
+    return progress >= start && progress <= end;
+  }
+  return progress >= start || progress <= end;
+}
+
 function interpolateTrackPoint(
   points: ProjectedTrackPoint[],
   targetValue: number | null | undefined,
@@ -363,6 +387,10 @@ export function CompareTrackMap({
   height = 340,
   className = "",
   corners,
+  focusStartProgressNorm = null,
+  focusEndProgressNorm = null,
+  autoFocusKey = null,
+  showTrackEnvelope = false,
 }: Props) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -388,6 +416,7 @@ export function CompareTrackMap({
   >(null);
   const panHoldDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panHoldRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastAutoFocusKeyRef = useRef<string | number | null>(null);
 
   const preparedSeries = useMemo(() => {
     const extracted = series
@@ -711,6 +740,54 @@ export function CompareTrackMap({
     dragRef.current = null;
   }, []);
 
+  useEffect(() => {
+    if (
+      viewMode !== "2d" ||
+      !preparedSeries ||
+      focusStartProgressNorm === null ||
+      focusEndProgressNorm === null ||
+      autoFocusKey === null
+    ) {
+      return;
+    }
+    if (lastAutoFocusKeyRef.current === autoFocusKey) {
+      return;
+    }
+
+    const focusPoints = preparedSeries.laps.flatMap((lap) =>
+      lap.projected.filter((point) =>
+        progressInRange(point.progress, focusStartProgressNorm, focusEndProgressNorm),
+      ),
+    );
+    if (focusPoints.length < 2) {
+      return;
+    }
+
+    const bounds = computeBounds(
+      focusPoints.map((point) => ({ x: point.sx, y: point.sy })),
+    );
+    const spanX = Math.max(bounds.maxX - bounds.minX, MIN_FOCUS_SPAN_PX);
+    const spanY = Math.max(bounds.maxY - bounds.minY, MIN_FOCUS_SPAN_PX);
+    const zoomX = (preparedSeries.viewW - (FOCUS_PADDING_PX * 2)) / spanX;
+    const zoomY = (preparedSeries.viewH - (FOCUS_PADDING_PX * 2)) / spanY;
+    const nextZoom = clampZoom(Math.max(1, Math.min(zoomX, zoomY)));
+    const boundsCenterX = (bounds.minX + bounds.maxX) / 2;
+    const boundsCenterY = (bounds.minY + bounds.maxY) / 2;
+
+    setZoom(nextZoom);
+    setPan({
+      x: (preparedSeries.centerX - boundsCenterX) * nextZoom,
+      y: (preparedSeries.centerY - boundsCenterY) * nextZoom,
+    });
+    lastAutoFocusKeyRef.current = autoFocusKey;
+  }, [
+    autoFocusKey,
+    focusEndProgressNorm,
+    focusStartProgressNorm,
+    preparedSeries,
+    viewMode,
+  ]);
+
   const resetView = useCallback(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
@@ -853,17 +930,54 @@ export function CompareTrackMap({
             </>
           )}
 
+          {showTrackEnvelope && referenceLap && (
+            <>
+              <path
+                d={referenceLap.path}
+                fill="none"
+                stroke="rgba(255,255,255,0.12)"
+                strokeWidth={TRACK_ENVELOPE_OUTER_WIDTH}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.95}
+              />
+              <path
+                d={referenceLap.path}
+                fill="none"
+                stroke="rgba(8,10,16,0.72)"
+                strokeWidth={TRACK_ENVELOPE_INNER_WIDTH}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.92}
+              />
+            </>
+          )}
+
           {displayData.laps.map((lap) => (
-            <path
-              key={lap.id}
-              d={lap.path}
-              fill="none"
-              stroke={lap.color}
-              strokeWidth={lap.isReference ? THREE_D_REFERENCE_WIDTH : THREE_D_OTHER_WIDTH}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity={lap.isReference ? 0.98 : 0.52}
-            />
+            <g key={lap.id}>
+              <path
+                d={lap.path}
+                fill="none"
+                stroke={
+                  lap.isReference
+                    ? "rgba(191,219,254,0.45)"
+                    : "rgba(249,115,22,0.34)"
+                }
+                strokeWidth={lap.isReference ? REFERENCE_LINE_UNDERLAY_WIDTH : OTHER_LINE_UNDERLAY_WIDTH}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={lap.isReference ? 0.78 : 0.78}
+              />
+              <path
+                d={lap.path}
+                fill="none"
+                stroke={lap.color}
+                strokeWidth={lap.isReference ? REFERENCE_LINE_WIDTH : OTHER_LINE_WIDTH}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={lap.isReference ? 0.96 : 0.88}
+              />
+            </g>
           ))}
 
           {showCorners &&

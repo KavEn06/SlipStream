@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 
-SEGMENTATION_VERSION = "2026.04-v2"
+SEGMENTATION_VERSION = "2026.04-v3"
 
 CURVATURE_SMOOTHING_WINDOW = 7
 CURVATURE_NOISE_FLOOR = 0.002
@@ -379,12 +379,13 @@ def _build_corner_definitions(
         is_compound = len(sub_apex_global) > 1
 
         if is_compound:
-            # Compound corners (chicanes / double-apex) have multiple curvature
-            # peaks. The single-argmax "center" cannot sensibly anchor an
-            # entry/apex/exit split, so we treat the entire region as apex and
-            # let downstream analysis handle sub-apexes individually.
-            entry_end_p = start_p
-            exit_start_p = end_p
+            # Anchor entry/exit on the first and last sub-apex so every corner
+            # has a meaningful three-phase split:
+            #   entry  = start → first sub-apex (approach + turn-in)
+            #   center = first sub-apex → last sub-apex (multi-peak zone)
+            #   exit   = last sub-apex → end (application of power out)
+            entry_end_p = float(prog_norm[sub_apex_global[0]])
+            exit_start_p = float(prog_norm[sub_apex_global[-1]])
         else:
             corner_width_p = (1.0 - start_p) + end_p if is_wrap else end_p - start_p
             center_half_width_p = (CENTER_REGION_FRACTION / 2.0) * corner_width_p

@@ -92,7 +92,10 @@ function extractTrackPoints(
           ? Number(rawScrub)
           : Number.NaN;
 
-    const rawProgress = record.NormalizedDistance;
+    const rawProgress =
+      record.TrackProgressNorm !== undefined
+        ? record.TrackProgressNorm
+        : record.NormalizedDistance;
     const progressVal =
       typeof rawProgress === "number"
         ? rawProgress
