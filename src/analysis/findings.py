@@ -41,6 +41,7 @@ from src.analysis.constants import (
 )
 from src.analysis.corner_records import CornerRecord
 from src.analysis.detectors import (
+    DETECTOR_EARLY_BRAKING,
     DETECTOR_EXIT_PHASE_LOSS,
     DETECTOR_OVER_SLOW_MID_CORNER,
     DETECTOR_TRAIL_BRAKE_PAST_APEX,
@@ -231,7 +232,24 @@ def _session_top(findings: list[Finding], cap: int) -> list[Finding]:
 
 
 def _apply_mutual_suppression(findings: list[Finding]) -> list[Finding]:
-    """Drop redundant findings per (corner, lap)."""
+    """Drop redundant findings per (corner, lap).
+
+    Suppression follows a root-cause hierarchy: upstream causes suppress their
+    downstream symptoms so the driver sees the actionable root cause, not a pile
+    of consequences that all trace back to the same mistake.
+
+    Entry causes  →  Apex symptom  →  Exit consequence
+    ─────────────────────────────────────────────────
+    early_braking         ↓                  ↓
+    trail_brake    →  over_slow  (suppresses over_slow as symptom)
+    abrupt_release        ↓
+                   over_slow  →  (does NOT suppress exit_loss —
+                                  they are independent phases)
+
+    NOTE: all detectors receive the same ``time_loss_s`` (the full corner
+    delta from the universal gate), so magnitude-based "which lost more"
+    comparisons are meaningless — do not use them here.
+    """
     by_pair: dict[tuple[int, int], list[Finding]] = {}
     for finding in findings:
         by_pair.setdefault((finding.corner_id, finding.lap_number), []).append(finding)
@@ -239,20 +257,29 @@ def _apply_mutual_suppression(findings: list[Finding]) -> list[Finding]:
     kept: list[Finding] = []
     for group in by_pair.values():
         detectors_in_group = {f.detector: f for f in group}
+        early_brake = detectors_in_group.get(DETECTOR_EARLY_BRAKING)
         trail_brake = detectors_in_group.get(DETECTOR_TRAIL_BRAKE_PAST_APEX)
         over_slow = detectors_in_group.get(DETECTOR_OVER_SLOW_MID_CORNER)
         exit_loss = detectors_in_group.get(DETECTOR_EXIT_PHASE_LOSS)
 
         dropped_ids: set[str] = set()
 
-        # Trail-brake-past-apex dominates over-slow-mid: upstream cause.
+        # Entry cause dominates apex symptom + exit consequence.
+        # early_braking: driver bled entry speed → forced slow apex → late throttle.
+        if early_brake is not None:
+            if over_slow is not None:
+                dropped_ids.add(over_slow.finding_id)
+            if exit_loss is not None:
+                dropped_ids.add(exit_loss.finding_id)
+
+        # Trail-brake-past-apex dominates over-slow-mid: the held brake caused
+        # the slow apex, over_slow is a downstream symptom.
         if trail_brake is not None and over_slow is not None:
             dropped_ids.add(over_slow.finding_id)
 
-        # Over-slow-mid dominates exit-phase-loss if it lost more time.
-        if over_slow is not None and exit_loss is not None:
-            if over_slow.time_loss_s >= exit_loss.time_loss_s:
-                dropped_ids.add(exit_loss.finding_id)
+        # over_slow and exit_phase_loss are INDEPENDENT phases (apex vs exit).
+        # They may validly co-exist: driver can over-slow mid-corner AND have
+        # separate late-throttle technique on exit.  No suppression between them.
 
         for finding in group:
             if finding.finding_id not in dropped_ids:

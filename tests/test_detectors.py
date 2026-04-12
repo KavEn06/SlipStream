@@ -224,7 +224,7 @@ class TestEarlyBraking(unittest.TestCase):
         self.assertIsNotNone(hit)
         assert hit is not None
         self.assertEqual(hit.detector, DETECTOR_EARLY_BRAKING)
-        self.assertLess(hit.metrics_snapshot["brake_point_delta_m"], -10.0)
+        self.assertLess(hit.metrics_snapshot["brake_point_delta_m"], -7.0)
         self.assertGreater(hit.pattern_strength, 0.0)
 
     def test_blocked_when_brake_point_not_early_enough(self) -> None:

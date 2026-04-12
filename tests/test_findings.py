@@ -298,15 +298,41 @@ class TestMutualSuppression(unittest.TestCase):
         self.assertIn(DETECTOR_TRAIL_BRAKE_PAST_APEX, detectors)
         self.assertNotIn(DETECTOR_OVER_SLOW_MID_CORNER, detectors)
 
-    def test_over_slow_suppresses_exit_loss_when_larger(self) -> None:
+    def test_over_slow_does_not_suppress_exit_loss(self) -> None:
+        # over_slow and exit_phase_loss are independent phases (apex vs exit).
+        # They may validly co-exist; over_slow must NOT eat exit_phase_loss.
         records = {1: [_make_record(corner_id=1, lap_number=2)]}
         hits = [
             _make_hit(detector=DETECTOR_OVER_SLOW_MID_CORNER, time_loss_s=0.35),
-            _make_hit(detector=DETECTOR_EXIT_PHASE_LOSS, time_loss_s=0.20),
+            _make_hit(detector=DETECTOR_EXIT_PHASE_LOSS, time_loss_s=0.35),
         ]
         result = build_findings(hits, records)
         detectors = {f.detector for f in result.findings_all}
         self.assertIn(DETECTOR_OVER_SLOW_MID_CORNER, detectors)
+        self.assertIn(DETECTOR_EXIT_PHASE_LOSS, detectors)
+
+    def test_early_braking_suppresses_over_slow(self) -> None:
+        # early_braking is the root cause; over_slow is a downstream symptom.
+        records = {1: [_make_record(corner_id=1, lap_number=2)]}
+        hits = [
+            _make_hit(detector=DETECTOR_EARLY_BRAKING, time_loss_s=0.3),
+            _make_hit(detector=DETECTOR_OVER_SLOW_MID_CORNER, time_loss_s=0.3),
+        ]
+        result = build_findings(hits, records)
+        detectors = {f.detector for f in result.findings_all}
+        self.assertIn(DETECTOR_EARLY_BRAKING, detectors)
+        self.assertNotIn(DETECTOR_OVER_SLOW_MID_CORNER, detectors)
+
+    def test_early_braking_suppresses_exit_loss(self) -> None:
+        # early_braking explains the full entry→apex→exit chain.
+        records = {1: [_make_record(corner_id=1, lap_number=2)]}
+        hits = [
+            _make_hit(detector=DETECTOR_EARLY_BRAKING, time_loss_s=0.3),
+            _make_hit(detector=DETECTOR_EXIT_PHASE_LOSS, time_loss_s=0.3),
+        ]
+        result = build_findings(hits, records)
+        detectors = {f.detector for f in result.findings_all}
+        self.assertIn(DETECTOR_EARLY_BRAKING, detectors)
         self.assertNotIn(DETECTOR_EXIT_PHASE_LOSS, detectors)
 
     def test_suppression_does_not_cross_laps(self) -> None:

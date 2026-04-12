@@ -50,8 +50,8 @@ interface ChartRow {
   baseSteering?: number;
 }
 
-const CAND_COLOR = "#f97316"; // orange-500 — driver's lap
-const BASE_COLOR = "#60a5fa"; // blue-400  — reference lap
+const CAND_COLOR = "#f472b6"; // pink-400 — driver's/advice lap
+const BASE_COLOR = "#d1d5db"; // zinc-300 — reference lap
 
 const CHART_TOOLTIP_STYLE = {
   background: "rgba(14,14,20,0.92)",

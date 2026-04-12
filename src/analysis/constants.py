@@ -8,7 +8,7 @@ contents of the serialized ``session_analysis.json``.
 from __future__ import annotations
 
 
-ANALYSIS_VERSION = "2026.04-v2-corner-analysis"
+ANALYSIS_VERSION = "2026.04-v3-corner-analysis"
 
 # --- Event detection --------------------------------------------------------
 # Meters of approach ahead of the corner that the brake-initiation search
@@ -52,8 +52,8 @@ STEERING_ACTIVE_THRESHOLD = 0.10
 
 # --- Detector gates ---------------------------------------------------------
 # Candidate lap's brake initiation must be this many meters earlier than the
-# baseline's (i.e. candidate_brake_point - baseline_brake_point <= -10m).
-EARLY_BRAKE_DELTA_M = 10.0
+# baseline's (i.e. candidate_brake_point - baseline_brake_point <= -7m).
+EARLY_BRAKE_DELTA_M = 7.0
 
 # Trail brake release happens this many meters past the min-speed point.
 TRAIL_BRAKE_PAST_APEX_M = 5.0
