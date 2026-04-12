@@ -10,11 +10,13 @@ from __future__ import annotations
 from typing import Any
 
 from src.analysis.detectors import (
-    DETECTOR_ABRUPT_BRAKE_RELEASE,
     DETECTOR_EARLY_BRAKING,
     DETECTOR_EXIT_PHASE_LOSS,
+    DETECTOR_LATE_BRAKING,
     DETECTOR_OVER_SLOW_MID_CORNER,
+    DETECTOR_STEERING_INSTABILITY,
     DETECTOR_TRAIL_BRAKE_PAST_APEX,
+    DETECTOR_WEAK_EXIT,
 )
 
 
@@ -27,14 +29,18 @@ def render_finding_text(
     """Dispatch to the per-detector template function."""
     if detector == DETECTOR_EARLY_BRAKING:
         return _early_braking_text(corner_id, severity, metrics)
+    if detector == DETECTOR_LATE_BRAKING:
+        return _late_braking_text(corner_id, severity, metrics)
     if detector == DETECTOR_TRAIL_BRAKE_PAST_APEX:
         return _trail_brake_past_apex_text(corner_id, severity, metrics)
-    if detector == DETECTOR_ABRUPT_BRAKE_RELEASE:
-        return _abrupt_brake_release_text(corner_id, severity, metrics)
     if detector == DETECTOR_OVER_SLOW_MID_CORNER:
         return _over_slow_mid_corner_text(corner_id, severity, metrics)
     if detector == DETECTOR_EXIT_PHASE_LOSS:
         return _exit_phase_loss_text(corner_id, severity, metrics)
+    if detector == DETECTOR_WEAK_EXIT:
+        return _weak_exit_text(corner_id, severity, metrics)
+    if detector == DETECTOR_STEERING_INSTABILITY:
+        return _steering_instability_text(corner_id, severity, metrics)
     raise ValueError(f"Unknown detector: {detector}")
 
 
@@ -79,23 +85,20 @@ def _trail_brake_past_apex_text(
     )
 
 
-def _abrupt_brake_release_text(
-    corner_id: int, severity: str, m: dict[str, Any]
-) -> str:
-    release_value = float(m["release_brake_value"])
-    release_rate = float(m["release_rate_per_s"])
+def _late_braking_text(corner_id: int, severity: str, m: dict[str, Any]) -> str:
+    delta = abs(float(m["brake_point_delta_m"]))
     min_delta = float(m["min_speed_delta_kph"])
     time_loss = float(m["corner_time_delta_s"])
     if severity == "minor":
         return (
-            f"In T{corner_id}, brake release is a bit abrupt "
-            f"({release_rate:.1f}/s from {release_value:.2f}). Smoothing "
-            f"the transition may improve turn-in stability. {time_loss:.2f} s lost."
+            f"In T{corner_id}, braked {delta:.0f} m later than your best lap. "
+            f"Try braking a touch earlier to carry more mid-corner speed. "
+            f"{time_loss:.2f} s lost."
         )
     return (
-        f"T{corner_id}: Abrupt brake release (dropped from {release_value:.2f} "
-        f"at {release_rate:.1f}/s). Car pitches up, min speed {min_delta:+.1f} "
-        f"kph vs best. {time_loss:.2f} s lost."
+        f"T{corner_id}: Late brake point ({delta:.0f} m past your best). "
+        f"Overshooting cost {min_delta:+.1f} kph at the apex — "
+        f"{time_loss:.2f} s lost. Brake earlier to avoid scrubbing speed."
     )
 
 
@@ -132,4 +135,45 @@ def _exit_phase_loss_text(corner_id: int, severity: str, m: dict[str, Any]) -> s
         f"T{corner_id}: Throttle pickup {pickup_delay:.0f} m later than best. "
         f"Exit speed {exit_delta:+.1f} kph, {time_loss:.2f} s lost. Commit "
         f"earlier on exit."
+    )
+
+
+def _weak_exit_text(corner_id: int, severity: str, m: dict[str, Any]) -> str:
+    fraction = float(m["exit_full_throttle_fraction"])
+    base_fraction = float(m["baseline_exit_full_throttle_fraction"])
+    exit_delta = float(m["exit_speed_delta_kph"])
+    time_loss = float(m["corner_time_delta_s"])
+    pct = fraction * 100
+    base_pct = base_fraction * 100
+    if severity == "minor":
+        return (
+            f"In T{corner_id}, only {pct:.0f}% of the exit is at full throttle "
+            f"(vs {base_pct:.0f}% on your best). Try committing to throttle "
+            f"more decisively. {time_loss:.2f} s lost."
+        )
+    return (
+        f"T{corner_id}: Tentative throttle on exit — {pct:.0f}% at full "
+        f"throttle vs {base_pct:.0f}% on best lap. Exit speed "
+        f"{exit_delta:+.1f} kph, {time_loss:.2f} s lost. Commit to full "
+        f"throttle earlier once the car is pointed."
+    )
+
+
+def _steering_instability_text(
+    corner_id: int, severity: str, m: dict[str, Any]
+) -> str:
+    count = int(m["exit_steering_correction_count"])
+    base_count = int(m["baseline_exit_steering_correction_count"])
+    time_loss = float(m["corner_time_delta_s"])
+    if severity == "minor":
+        return (
+            f"In T{corner_id}, {count} steering corrections on exit "
+            f"(vs {base_count} on your best). Try unwinding the wheel "
+            f"more smoothly. {time_loss:.2f} s lost."
+        )
+    return (
+        f"T{corner_id}: {count} steering corrections on exit vs "
+        f"{base_count} on best lap — the car isn't settled. "
+        f"{time_loss:.2f} s lost. Focus on a smoother line through "
+        f"the exit to build confidence on throttle."
     )

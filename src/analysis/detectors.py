@@ -1,4 +1,4 @@
-"""Five v1 detectors for the corner analysis layer.
+"""Seven detectors for the corner analysis layer.
 
 Each detector is a pure function that takes a candidate ``CornerRecord``
 and its per-corner ``CornerBaseline`` and returns a ``DetectorHit | None``.
@@ -24,22 +24,29 @@ from typing import Any
 from src.analysis.baselines import CornerBaseline
 from src.analysis.constants import (
     ALIGNMENT_QUALITY_POOR_M,
-    BRAKE_RELEASE_RATE_MIN,
     EARLY_BRAKE_DELTA_M,
     EXIT_PHASE_LOSS_THROTTLE_DELAY_M,
+    LATE_BRAKE_DELTA_M,
     OVER_SLOW_EXIT_SPEED_DELTA_KPH,
     OVER_SLOW_MIN_SPEED_DELTA_KPH,
+    STEERING_INSTABILITY_BASELINE_CEILING,
+    STEERING_INSTABILITY_CORRECTION_DELTA,
+    STEERING_INSTABILITY_CORRECTION_FLOOR,
     TIME_LOSS_GATE_S,
     TRAIL_BRAKE_PAST_APEX_M,
+    WEAK_EXIT_EXIT_SPEED_DELTA_KPH,
+    WEAK_EXIT_FRACTION_DELTA,
 )
 from src.analysis.corner_records import CornerRecord
 
 
 DETECTOR_EARLY_BRAKING = "early_braking"
+DETECTOR_LATE_BRAKING = "late_braking"
 DETECTOR_TRAIL_BRAKE_PAST_APEX = "trail_brake_past_apex"
-DETECTOR_ABRUPT_BRAKE_RELEASE = "abrupt_brake_release"
 DETECTOR_OVER_SLOW_MID_CORNER = "over_slow_mid_corner"
 DETECTOR_EXIT_PHASE_LOSS = "exit_phase_loss"
+DETECTOR_WEAK_EXIT = "weak_exit"
+DETECTOR_STEERING_INSTABILITY = "steering_instability"
 
 
 @dataclass(frozen=True)
@@ -114,7 +121,7 @@ def universal_gate(record: CornerRecord, baseline: CornerBaseline) -> float | No
 def run_all_detectors(
     record: CornerRecord, baseline: CornerBaseline
 ) -> list[DetectorHit]:
-    """Run every v1 detector against one (record, baseline) pair.
+    """Run every detector against one (record, baseline) pair.
 
     Mutual-suppression rules are NOT applied here — they operate over the
     full candidate pool in ``findings.py``. This function only enforces the
@@ -127,10 +134,12 @@ def run_all_detectors(
     hits: list[DetectorHit] = []
     for detector_fn in (
         detect_early_braking,
+        detect_late_braking,
         detect_trail_brake_past_apex,
-        detect_abrupt_brake_release,
         detect_over_slow_mid_corner,
         detect_exit_phase_loss,
+        detect_weak_exit,
+        detect_steering_instability,
     ):
         hit = detector_fn(record, baseline, time_loss_s)
         if hit is not None:
@@ -278,42 +287,59 @@ def detect_trail_brake_past_apex(
 
 
 # ---------------------------------------------------------------------------
-# H.3 — Abrupt brake release
+# H.3 — Late braking / overshoot
 # ---------------------------------------------------------------------------
 
 
-def detect_abrupt_brake_release(
+def detect_late_braking(
     record: CornerRecord, baseline: CornerBaseline, time_loss_s: float
 ) -> DetectorHit | None:
     base = baseline.reference_record
     if record.brake is None or base.brake is None:
         return None
 
-    release_rate = record.brake.release_rate_per_s
-    release_value = record.brake.release_brake_value
-    if release_rate <= BRAKE_RELEASE_RATE_MIN:
-        return None
-    if release_value <= 0.15:
+    brake_point_delta_m = (
+        record.brake.initiation_distance_m - base.brake.initiation_distance_m
+    )
+    # Candidate braked >= LATE_BRAKE_DELTA_M later than baseline.
+    if brake_point_delta_m < LATE_BRAKE_DELTA_M:
         return None
 
     min_speed_delta = record.apex.min_speed_kph - base.apex.min_speed_kph
-    if min_speed_delta >= -0.5:
+    exit_speed_delta = record.exit.exit_speed_kph - base.exit.exit_speed_kph
+
+    # Overshoot confirmation: the late brake must have hurt.
+    if min_speed_delta >= -2.0 and exit_speed_delta >= -3.0:
         return None
 
-    # False-positive: this corner inherently has a quick release (baseline
-    # also releases abruptly).
-    if base.brake.release_rate_per_s > 3.0:
+    # False-positive: exit speed gained means the late brake was a
+    # legitimate aggressive line.
+    if exit_speed_delta > 0.0:
+        return None
+
+    # False-positive: candidate arrived meaningfully slower — the later
+    # brake is due to lower approach speed, not overshooting.
+    entry_speed_delta = record.entry.entry_speed_kph - base.entry.entry_speed_kph
+    if entry_speed_delta < -3.0:
+        return None
+
+    # Baseline decel guard (same as early_braking).
+    baseline_decel = abs(base.brake.avg_decel_mps2)
+    candidate_decel = abs(record.brake.avg_decel_mps2)
+    if baseline_decel < 1e-3 or candidate_decel < 1e-3:
         return None
 
     pattern_strength = _saturate(
-        (release_rate - BRAKE_RELEASE_RATE_MIN) / BRAKE_RELEASE_RATE_MIN
+        (brake_point_delta_m - LATE_BRAKE_DELTA_M) / LATE_BRAKE_DELTA_M
     )
 
     metrics = {
-        "release_rate_per_s": release_rate,
-        "release_brake_value": release_value,
-        "baseline_release_rate_per_s": base.brake.release_rate_per_s,
+        "brake_point_delta_m": brake_point_delta_m,
+        "candidate_brake_distance_m": record.brake.initiation_distance_m,
+        "baseline_brake_distance_m": base.brake.initiation_distance_m,
         "min_speed_delta_kph": min_speed_delta,
+        "exit_speed_delta_kph": exit_speed_delta,
+        "entry_speed_delta_kph": entry_speed_delta,
         "corner_time_delta_s": time_loss_s,
     }
     evidence = [
@@ -322,9 +348,14 @@ def detect_abrupt_brake_release(
             "progress_start": float(record.brake.initiation_progress_norm),
             "progress_end": float(record.brake.release_progress_norm),
         },
+        {
+            "column": "SpeedKph",
+            "progress_start": float(record.brake.initiation_progress_norm),
+            "progress_end": float(record.apex.min_speed_progress_norm),
+        },
     ]
     return DetectorHit(
-        detector=DETECTOR_ABRUPT_BRAKE_RELEASE,
+        detector=DETECTOR_LATE_BRAKING,
         corner_id=record.corner_id,
         lap_number=record.lap_number,
         time_loss_s=time_loss_s,
@@ -442,6 +473,131 @@ def detect_exit_phase_loss(
     ]
     return DetectorHit(
         detector=DETECTOR_EXIT_PHASE_LOSS,
+        corner_id=record.corner_id,
+        lap_number=record.lap_number,
+        time_loss_s=time_loss_s,
+        pattern_strength=pattern_strength,
+        metrics_snapshot=metrics,
+        evidence_refs=evidence,
+    )
+
+
+# ---------------------------------------------------------------------------
+# H.6 — Weak exit (tentative throttle application)
+# ---------------------------------------------------------------------------
+
+
+def detect_weak_exit(
+    record: CornerRecord, baseline: CornerBaseline, time_loss_s: float
+) -> DetectorHit | None:
+    base = baseline.reference_record
+    if record.throttle is None or base.throttle is None:
+        return None
+
+    # Both must have a meaningful full-throttle reference.
+    if base.throttle.exit_full_throttle_fraction < 0.20:
+        return None
+
+    cand_fraction = record.throttle.exit_full_throttle_fraction
+    base_fraction = base.throttle.exit_full_throttle_fraction
+    fraction_delta = base_fraction - cand_fraction
+    if fraction_delta < WEAK_EXIT_FRACTION_DELTA:
+        return None
+
+    exit_speed_delta = record.exit.exit_speed_kph - base.exit.exit_speed_kph
+    if exit_speed_delta > WEAK_EXIT_EXIT_SPEED_DELTA_KPH:
+        return None
+
+    # Guard: if throttle pickup is very late, this is an exit_phase_loss
+    # problem, not a weak_exit problem.
+    pickup_delay_m = (
+        record.throttle.pickup_distance_from_min_speed_m
+        - base.throttle.pickup_distance_from_min_speed_m
+    )
+    if pickup_delay_m >= EXIT_PHASE_LOSS_THROTTLE_DELAY_M:
+        return None
+
+    pattern_strength = _saturate(
+        (fraction_delta - WEAK_EXIT_FRACTION_DELTA) / 0.30
+    )
+
+    metrics = {
+        "exit_full_throttle_fraction": cand_fraction,
+        "baseline_exit_full_throttle_fraction": base_fraction,
+        "exit_full_throttle_fraction_delta": fraction_delta,
+        "exit_speed_delta_kph": exit_speed_delta,
+        "throttle_pickup_delay_m": pickup_delay_m,
+        "corner_time_delta_s": time_loss_s,
+    }
+    evidence = [
+        {
+            "column": "Throttle",
+            "progress_start": float(record.throttle.pickup_progress_norm),
+            "progress_end": float(record.apex.min_speed_progress_norm) + 0.08,
+        },
+        {
+            "column": "SpeedKph",
+            "progress_start": float(record.apex.min_speed_progress_norm),
+            "progress_end": float(record.apex.min_speed_progress_norm) + 0.08,
+        },
+    ]
+    return DetectorHit(
+        detector=DETECTOR_WEAK_EXIT,
+        corner_id=record.corner_id,
+        lap_number=record.lap_number,
+        time_loss_s=time_loss_s,
+        pattern_strength=pattern_strength,
+        metrics_snapshot=metrics,
+        evidence_refs=evidence,
+    )
+
+
+# ---------------------------------------------------------------------------
+# H.7 — Steering instability on exit
+# ---------------------------------------------------------------------------
+
+
+def detect_steering_instability(
+    record: CornerRecord, baseline: CornerBaseline, time_loss_s: float
+) -> DetectorHit | None:
+    base = baseline.reference_record
+
+    # Compound corners naturally have multiple direction changes.
+    if record.is_compound:
+        return None
+
+    cand_count = record.exit_steering_correction_count
+    base_count = base.exit_steering_correction_count
+
+    # Absolute floor — need at least this many corrections to be meaningful.
+    if cand_count < STEERING_INSTABILITY_CORRECTION_FLOOR:
+        return None
+
+    # Skip corners where even the baseline is noisy.
+    if base_count >= STEERING_INSTABILITY_BASELINE_CEILING:
+        return None
+
+    delta = cand_count - base_count
+    if delta < STEERING_INSTABILITY_CORRECTION_DELTA:
+        return None
+
+    pattern_strength = _saturate((delta - STEERING_INSTABILITY_CORRECTION_DELTA) / 5.0)
+
+    metrics = {
+        "exit_steering_correction_count": cand_count,
+        "baseline_exit_steering_correction_count": base_count,
+        "correction_count_delta": delta,
+        "corner_time_delta_s": time_loss_s,
+    }
+    evidence = [
+        {
+            "column": "Steering",
+            "progress_start": float(record.exit.min_speed_progress_norm),
+            "progress_end": float(record.exit.min_speed_progress_norm) + 0.08,
+        },
+    ]
+    return DetectorHit(
+        detector=DETECTOR_STEERING_INSTABILITY,
         corner_id=record.corner_id,
         lap_number=record.lap_number,
         time_loss_s=time_loss_s,

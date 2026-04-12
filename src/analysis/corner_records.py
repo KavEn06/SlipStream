@@ -28,6 +28,7 @@ from src.analysis.constants import (
     THROTTLE_DIP_LOWER,
     THROTTLE_DIP_UPPER,
     THROTTLE_PICKUP_THRESHOLD,
+    STEERING_NOISE_THRESHOLD,
     TRAIL_BRAKE_CLEAR_THRESHOLD,
 )
 from src.processing.segmentation import CornerDefinition, StraightDefinition, TrackSegmentation
@@ -113,6 +114,7 @@ class CornerRecord:
     gear_at_min_speed: int | None
     min_speed_kph: float
     min_speed_progress_norm: float
+    exit_steering_correction_count: int
     sub_corner_records: list["CornerRecord"] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -132,6 +134,7 @@ class CornerRecord:
             "gear_at_min_speed": self.gear_at_min_speed,
             "min_speed_kph": self.min_speed_kph,
             "min_speed_progress_norm": self.min_speed_progress_norm,
+            "exit_steering_correction_count": self.exit_steering_correction_count,
             "sub_corner_records": [record.to_dict() for record in self.sub_corner_records],
         }
 
@@ -365,6 +368,9 @@ def _build_corner_record(
         end_p=end_p,
     )
     coasting_distance_m = _coasting_distance(arrays, corner_mask)
+    exit_steering_corrections = _exit_steering_corrections(
+        arrays, exit_start_p, end_p
+    )
 
     alignment_quality_m, alignment_used_fallback = _alignment_quality(
         processed_arrays, start_p, end_p
@@ -396,6 +402,7 @@ def _build_corner_record(
         gear_at_min_speed=gear_at_min_speed,
         min_speed_kph=min_speed_kph,
         min_speed_progress_norm=min_speed_progress_norm,
+        exit_steering_correction_count=exit_steering_corrections,
         sub_corner_records=sub_corner_records,
     )
 
@@ -444,6 +451,7 @@ def _degenerate_corner_record(
         gear_at_min_speed=None,
         min_speed_kph=phase.min_speed_kph,
         min_speed_progress_norm=phase.min_speed_progress_norm,
+        exit_steering_correction_count=0,
         sub_corner_records=[],
     )
 
@@ -827,6 +835,29 @@ def _alignment_quality(
     median_residual = float(np.median(finite)) if finite.size else 0.0
     used_fallback = bool(processed_arrays.used_fallback[mask].any())
     return median_residual, used_fallback
+
+
+# ---------------------------------------------------------------------------
+# Steering stability helpers
+# ---------------------------------------------------------------------------
+
+
+def _exit_steering_corrections(
+    arrays: _LapArrays, exit_start_p: float, end_p: float
+) -> int:
+    """Count steering direction changes in the exit phase (noise-filtered)."""
+    mask = _progress_window_mask(arrays.progress_norm, exit_start_p, end_p)
+    idx = np.where(mask)[0]
+    if idx.size < 3:
+        return 0
+    steering_exit = arrays.steering[idx]
+    dsteering = np.diff(steering_exit)
+    dsteering[np.abs(dsteering) < STEERING_NOISE_THRESHOLD] = 0.0
+    nonzero = dsteering[dsteering != 0.0]
+    if nonzero.size < 2:
+        return 0
+    signs = np.sign(nonzero)
+    return int(np.sum(signs[1:] != signs[:-1]))
 
 
 # ---------------------------------------------------------------------------

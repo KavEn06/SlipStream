@@ -8,7 +8,7 @@ contents of the serialized ``session_analysis.json``.
 from __future__ import annotations
 
 
-ANALYSIS_VERSION = "2026.04-v3-corner-analysis"
+ANALYSIS_VERSION = "2026.04-v4-corner-analysis"
 
 # --- Event detection --------------------------------------------------------
 # Meters of approach ahead of the corner that the brake-initiation search
@@ -58,9 +58,8 @@ EARLY_BRAKE_DELTA_M = 7.0
 # Trail brake release happens this many meters past the min-speed point.
 TRAIL_BRAKE_PAST_APEX_M = 5.0
 
-# Minimum brake-release rate (brake-value-per-second, where brake is 0–1) to
-# classify the release as "abrupt".
-BRAKE_RELEASE_RATE_MIN = 4.0
+# For late braking: candidate braked this many meters later than baseline.
+LATE_BRAKE_DELTA_M = 5.0
 
 # For the over-slow detector, the candidate's min speed must be at least this
 # much below the baseline's.
@@ -72,6 +71,21 @@ OVER_SLOW_EXIT_SPEED_DELTA_KPH = 0.0
 # Exit-phase loss fires when throttle pickup is delayed by at least this many
 # meters relative to baseline.
 EXIT_PHASE_LOSS_THROTTLE_DELAY_M = 8.0
+
+# Weak-exit detector: candidate's exit_full_throttle_fraction must be this
+# much lower than the baseline's.
+WEAK_EXIT_FRACTION_DELTA = 0.15
+# And exit speed must be at least this much slower.
+WEAK_EXIT_EXIT_SPEED_DELTA_KPH = -2.0
+
+# Steering instability: minimum correction-count delta vs baseline to fire.
+STEERING_INSTABILITY_CORRECTION_DELTA = 3
+# Absolute floor: need at least this many corrections regardless of baseline.
+STEERING_INSTABILITY_CORRECTION_FLOOR = 4
+# Skip corners where even the baseline has this many corrections (noisy).
+STEERING_INSTABILITY_BASELINE_CEILING = 8
+# Ignore steering changes smaller than this (sensor noise filter).
+STEERING_NOISE_THRESHOLD = 0.02
 
 # Universal time-loss gate: nothing fires unless the candidate is at least
 # this much slower than the baseline through the corner.

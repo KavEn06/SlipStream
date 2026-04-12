@@ -43,8 +43,10 @@ from src.analysis.corner_records import CornerRecord
 from src.analysis.detectors import (
     DETECTOR_EARLY_BRAKING,
     DETECTOR_EXIT_PHASE_LOSS,
+    DETECTOR_LATE_BRAKING,
     DETECTOR_OVER_SLOW_MID_CORNER,
     DETECTOR_TRAIL_BRAKE_PAST_APEX,
+    DETECTOR_WEAK_EXIT,
     DetectorHit,
 )
 from src.analysis.templates import render_finding_text
@@ -241,10 +243,10 @@ def _apply_mutual_suppression(findings: list[Finding]) -> list[Finding]:
     Entry causes  →  Apex symptom  →  Exit consequence
     ─────────────────────────────────────────────────
     early_braking         ↓                  ↓
-    trail_brake    →  over_slow  (suppresses over_slow as symptom)
-    abrupt_release        ↓
-                   over_slow  →  (does NOT suppress exit_loss —
-                                  they are independent phases)
+    late_braking          ↓                  ↓
+                       over_slow       exit_phase_loss → weak_exit
+    trail_brake    →   over_slow
+                                   steering_instability (independent)
 
     NOTE: all detectors receive the same ``time_loss_s`` (the full corner
     delta from the universal gate), so magnitude-based "which lost more"
@@ -258,28 +260,34 @@ def _apply_mutual_suppression(findings: list[Finding]) -> list[Finding]:
     for group in by_pair.values():
         detectors_in_group = {f.detector: f for f in group}
         early_brake = detectors_in_group.get(DETECTOR_EARLY_BRAKING)
+        late_brake = detectors_in_group.get(DETECTOR_LATE_BRAKING)
         trail_brake = detectors_in_group.get(DETECTOR_TRAIL_BRAKE_PAST_APEX)
         over_slow = detectors_in_group.get(DETECTOR_OVER_SLOW_MID_CORNER)
         exit_loss = detectors_in_group.get(DETECTOR_EXIT_PHASE_LOSS)
+        weak_exit = detectors_in_group.get(DETECTOR_WEAK_EXIT)
 
         dropped_ids: set[str] = set()
 
-        # Entry cause dominates apex symptom + exit consequence.
-        # early_braking: driver bled entry speed → forced slow apex → late throttle.
-        if early_brake is not None:
-            if over_slow is not None:
-                dropped_ids.add(over_slow.finding_id)
-            if exit_loss is not None:
-                dropped_ids.add(exit_loss.finding_id)
+        # Entry causes dominate apex symptom + exit consequence.
+        for entry_cause in (early_brake, late_brake):
+            if entry_cause is not None:
+                if over_slow is not None:
+                    dropped_ids.add(over_slow.finding_id)
+                if exit_loss is not None:
+                    dropped_ids.add(exit_loss.finding_id)
 
         # Trail-brake-past-apex dominates over-slow-mid: the held brake caused
         # the slow apex, over_slow is a downstream symptom.
         if trail_brake is not None and over_slow is not None:
             dropped_ids.add(over_slow.finding_id)
 
+        # exit_phase_loss dominates weak_exit: late pickup is the root cause
+        # of not reaching full throttle.
+        if exit_loss is not None and weak_exit is not None:
+            dropped_ids.add(weak_exit.finding_id)
+
         # over_slow and exit_phase_loss are INDEPENDENT phases (apex vs exit).
-        # They may validly co-exist: driver can over-slow mid-corner AND have
-        # separate late-throttle technique on exit.  No suppression between them.
+        # steering_instability is fully independent of all other detectors.
 
         for finding in group:
             if finding.finding_id not in dropped_ids:

@@ -18,11 +18,13 @@ from src.analysis.constants import (
 )
 from src.analysis.corner_records import CornerRecord, PhaseMetrics
 from src.analysis.detectors import (
-    DETECTOR_ABRUPT_BRAKE_RELEASE,
     DETECTOR_EARLY_BRAKING,
     DETECTOR_EXIT_PHASE_LOSS,
+    DETECTOR_LATE_BRAKING,
     DETECTOR_OVER_SLOW_MID_CORNER,
+    DETECTOR_STEERING_INSTABILITY,
     DETECTOR_TRAIL_BRAKE_PAST_APEX,
+    DETECTOR_WEAK_EXIT,
     DetectorHit,
 )
 from src.analysis.findings import (
@@ -63,6 +65,7 @@ def _make_record(
         gear_at_min_speed=3,
         min_speed_kph=100.0,
         min_speed_progress_norm=0.42,
+        exit_steering_correction_count=0,
         sub_corner_records=[],
     )
 
@@ -85,13 +88,15 @@ def _make_hit(
         "trail_brake_depth_m": 8.0,
         "baseline_trail_brake_depth_m": 1.0,
         "min_speed_delta_kph": -5.0,
-        "release_rate_per_s": 6.0,
-        "release_brake_value": 0.5,
-        "baseline_release_rate_per_s": 1.5,
         "exit_full_throttle_fraction": 0.6,
+        "baseline_exit_full_throttle_fraction": 0.8,
+        "exit_full_throttle_fraction_delta": 0.2,
         "throttle_pickup_delay_m": 12.0,
         "candidate_pickup_distance_from_min_speed_m": 22.0,
         "baseline_pickup_distance_from_min_speed_m": 10.0,
+        "exit_steering_correction_count": 6,
+        "baseline_exit_steering_correction_count": 1,
+        "correction_count_delta": 5,
         "corner_time_delta_s": time_loss_s,
     }
     if metrics:
@@ -228,19 +233,19 @@ class TestBuildFindings(unittest.TestCase):
 
     def test_per_corner_cap_enforced(self) -> None:
         records = self._records([1], [2])
-        # Four hits on the same (corner, lap) — three distinct detectors so no
-        # mutual suppression can collapse them. Cap = 2.
+        # Three hits on the same (corner, lap) — three distinct detectors
+        # with no mutual suppression. Cap = 2.
         hits = [
             _make_hit(detector=DETECTOR_EARLY_BRAKING, time_loss_s=0.40),
-            _make_hit(detector=DETECTOR_ABRUPT_BRAKE_RELEASE, time_loss_s=0.35),
-            _make_hit(detector=DETECTOR_TRAIL_BRAKE_PAST_APEX, time_loss_s=0.30),
+            _make_hit(detector=DETECTOR_TRAIL_BRAKE_PAST_APEX, time_loss_s=0.35),
+            _make_hit(detector=DETECTOR_STEERING_INSTABILITY, time_loss_s=0.30),
         ]
         result = build_findings(hits, records)
         self.assertEqual(len(result.findings_all), FINDINGS_PER_CORNER_CAP)
         kept_detectors = {f.detector for f in result.findings_all}
         self.assertEqual(
             kept_detectors,
-            {DETECTOR_EARLY_BRAKING, DETECTOR_ABRUPT_BRAKE_RELEASE},
+            {DETECTOR_EARLY_BRAKING, DETECTOR_TRAIL_BRAKE_PAST_APEX},
         )
 
     def test_session_top_cap(self) -> None:
@@ -334,6 +339,50 @@ class TestMutualSuppression(unittest.TestCase):
         detectors = {f.detector for f in result.findings_all}
         self.assertIn(DETECTOR_EARLY_BRAKING, detectors)
         self.assertNotIn(DETECTOR_EXIT_PHASE_LOSS, detectors)
+
+    def test_late_braking_suppresses_over_slow(self) -> None:
+        records = {1: [_make_record(corner_id=1, lap_number=2)]}
+        hits = [
+            _make_hit(detector=DETECTOR_LATE_BRAKING, time_loss_s=0.3),
+            _make_hit(detector=DETECTOR_OVER_SLOW_MID_CORNER, time_loss_s=0.3),
+        ]
+        result = build_findings(hits, records)
+        detectors = {f.detector for f in result.findings_all}
+        self.assertIn(DETECTOR_LATE_BRAKING, detectors)
+        self.assertNotIn(DETECTOR_OVER_SLOW_MID_CORNER, detectors)
+
+    def test_late_braking_suppresses_exit_loss(self) -> None:
+        records = {1: [_make_record(corner_id=1, lap_number=2)]}
+        hits = [
+            _make_hit(detector=DETECTOR_LATE_BRAKING, time_loss_s=0.3),
+            _make_hit(detector=DETECTOR_EXIT_PHASE_LOSS, time_loss_s=0.3),
+        ]
+        result = build_findings(hits, records)
+        detectors = {f.detector for f in result.findings_all}
+        self.assertIn(DETECTOR_LATE_BRAKING, detectors)
+        self.assertNotIn(DETECTOR_EXIT_PHASE_LOSS, detectors)
+
+    def test_exit_phase_loss_suppresses_weak_exit(self) -> None:
+        records = {1: [_make_record(corner_id=1, lap_number=2)]}
+        hits = [
+            _make_hit(detector=DETECTOR_EXIT_PHASE_LOSS, time_loss_s=0.3),
+            _make_hit(detector=DETECTOR_WEAK_EXIT, time_loss_s=0.3),
+        ]
+        result = build_findings(hits, records)
+        detectors = {f.detector for f in result.findings_all}
+        self.assertIn(DETECTOR_EXIT_PHASE_LOSS, detectors)
+        self.assertNotIn(DETECTOR_WEAK_EXIT, detectors)
+
+    def test_steering_instability_independent(self) -> None:
+        records = {1: [_make_record(corner_id=1, lap_number=2)]}
+        hits = [
+            _make_hit(detector=DETECTOR_EARLY_BRAKING, time_loss_s=0.3),
+            _make_hit(detector=DETECTOR_STEERING_INSTABILITY, time_loss_s=0.3),
+        ]
+        result = build_findings(hits, records)
+        detectors = {f.detector for f in result.findings_all}
+        self.assertIn(DETECTOR_EARLY_BRAKING, detectors)
+        self.assertIn(DETECTOR_STEERING_INSTABILITY, detectors)
 
     def test_suppression_does_not_cross_laps(self) -> None:
         records = {

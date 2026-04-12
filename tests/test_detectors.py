@@ -14,7 +14,7 @@ import unittest
 from dataclasses import replace
 
 from src.analysis.baselines import CornerBaseline
-from src.analysis.constants import BRAKE_RELEASE_RATE_MIN, TIME_LOSS_GATE_S
+from src.analysis.constants import TIME_LOSS_GATE_S
 from src.analysis.corner_records import (
     BrakeEvent,
     CornerRecord,
@@ -22,17 +22,21 @@ from src.analysis.corner_records import (
     ThrottleEvent,
 )
 from src.analysis.detectors import (
-    DETECTOR_ABRUPT_BRAKE_RELEASE,
     DETECTOR_EARLY_BRAKING,
     DETECTOR_EXIT_PHASE_LOSS,
+    DETECTOR_LATE_BRAKING,
     DETECTOR_OVER_SLOW_MID_CORNER,
+    DETECTOR_STEERING_INSTABILITY,
     DETECTOR_TRAIL_BRAKE_PAST_APEX,
+    DETECTOR_WEAK_EXIT,
     DetectorHit,
-    detect_abrupt_brake_release,
     detect_early_braking,
     detect_exit_phase_loss,
+    detect_late_braking,
     detect_over_slow_mid_corner,
+    detect_steering_instability,
     detect_trail_brake_past_apex,
+    detect_weak_exit,
     run_all_detectors,
     universal_gate,
 )
@@ -124,6 +128,7 @@ def _record(
     exit_phase: PhaseMetrics | None = None,
     brake: BrakeEvent | None = None,
     throttle: ThrottleEvent | None = None,
+    exit_steering_correction_count: int = 0,
 ) -> CornerRecord:
     entry = entry or _phase(min_kph=160.0, min_progress=0.30, entry_kph=200.0, exit_kph=140.0)
     apex = apex or _phase(min_kph=100.0, min_progress=0.42)
@@ -144,6 +149,7 @@ def _record(
         gear_at_min_speed=3,
         min_speed_kph=apex.min_speed_kph,
         min_speed_progress_norm=apex.min_speed_progress_norm,
+        exit_steering_correction_count=exit_steering_correction_count,
         sub_corner_records=[],
     )
 
@@ -375,61 +381,77 @@ class TestTrailBrakePastApex(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Abrupt brake release
+# Late braking
 # ---------------------------------------------------------------------------
 
 
-class TestAbruptBrakeRelease(unittest.TestCase):
-    def test_fires_when_release_fast_from_loaded_pedal(self) -> None:
+class TestLateBraking(unittest.TestCase):
+    def test_fires_when_brake_later_and_apex_slower(self) -> None:
         base = _record(
             lap_number=1,
-            brake=_brake(release_rate=1.5, release_brake=0.4),
+            corner_time_s=6.0,
+            brake=_brake(init_dist_m=500.0, avg_decel=-7.0),
+            apex=_phase(min_kph=110.0),
+            exit_phase=_phase(entry_kph=140.0, min_kph=140.0, exit_kph=180.0, min_progress=0.55),
         )
         cand = _record(
             lap_number=2,
             corner_time_s=6.3,
-            brake=_brake(release_rate=BRAKE_RELEASE_RATE_MIN + 2.0, release_brake=0.5),
-            apex=_phase(min_kph=98.0),
+            brake=_brake(init_dist_m=510.0, avg_decel=-7.0),  # 10m later
+            apex=_phase(min_kph=105.0),  # -5 kph apex
+            exit_phase=_phase(entry_kph=130.0, min_kph=130.0, exit_kph=170.0, min_progress=0.55),
         )
-        hit = detect_abrupt_brake_release(cand, _baseline_from(base), time_loss_s=0.3)
+        hit = detect_late_braking(cand, _baseline_from(base), time_loss_s=0.3)
         self.assertIsNotNone(hit)
         assert hit is not None
-        self.assertEqual(hit.detector, DETECTOR_ABRUPT_BRAKE_RELEASE)
+        self.assertEqual(hit.detector, DETECTOR_LATE_BRAKING)
+        self.assertGreater(hit.metrics_snapshot["brake_point_delta_m"], 5.0)
 
-    def test_blocked_when_release_rate_below_threshold(self) -> None:
-        base = _record(lap_number=1, brake=_brake(release_rate=1.0))
+    def test_blocked_when_brake_delta_below_threshold(self) -> None:
+        base = _record(lap_number=1, brake=_brake(init_dist_m=500.0))
         cand = _record(
             lap_number=2,
             corner_time_s=6.3,
-            brake=_brake(release_rate=BRAKE_RELEASE_RATE_MIN - 0.1, release_brake=0.5),
+            brake=_brake(init_dist_m=503.0),  # only 3m later
             apex=_phase(min_kph=95.0),
         )
         self.assertIsNone(
-            detect_abrupt_brake_release(cand, _baseline_from(base), time_loss_s=0.3)
+            detect_late_braking(cand, _baseline_from(base), time_loss_s=0.3)
         )
 
-    def test_blocked_when_release_brake_value_too_low(self) -> None:
-        base = _record(lap_number=1, brake=_brake(release_rate=1.0))
+    def test_suppressed_when_exit_speed_gained(self) -> None:
+        base = _record(
+            lap_number=1,
+            brake=_brake(init_dist_m=500.0),
+            exit_phase=_phase(exit_kph=170.0, entry_kph=140.0, min_kph=135.0),
+        )
         cand = _record(
             lap_number=2,
             corner_time_s=6.3,
-            brake=_brake(release_rate=6.0, release_brake=0.10),  # light pedal
+            brake=_brake(init_dist_m=510.0),
             apex=_phase(min_kph=95.0),
+            exit_phase=_phase(exit_kph=175.0, entry_kph=140.0, min_kph=140.0),
         )
         self.assertIsNone(
-            detect_abrupt_brake_release(cand, _baseline_from(base), time_loss_s=0.3)
+            detect_late_braking(cand, _baseline_from(base), time_loss_s=0.3)
         )
 
-    def test_suppressed_when_baseline_also_releases_fast(self) -> None:
-        base = _record(lap_number=1, brake=_brake(release_rate=3.5, release_brake=0.5))
+    def test_suppressed_when_candidate_arrived_slower(self) -> None:
+        base = _record(
+            lap_number=1,
+            brake=_brake(init_dist_m=500.0),
+            entry=_phase(entry_kph=200.0, min_kph=160.0, exit_kph=140.0),
+        )
         cand = _record(
             lap_number=2,
             corner_time_s=6.3,
-            brake=_brake(release_rate=5.5, release_brake=0.5),
+            brake=_brake(init_dist_m=510.0),
+            entry=_phase(entry_kph=195.0, min_kph=155.0, exit_kph=135.0),
             apex=_phase(min_kph=95.0),
+            exit_phase=_phase(exit_kph=170.0, entry_kph=130.0, min_kph=130.0, min_progress=0.55),
         )
         self.assertIsNone(
-            detect_abrupt_brake_release(cand, _baseline_from(base), time_loss_s=0.3)
+            detect_late_braking(cand, _baseline_from(base), time_loss_s=0.3)
         )
 
 
@@ -542,6 +564,147 @@ class TestExitPhaseLoss(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Weak exit
+# ---------------------------------------------------------------------------
+
+
+class TestWeakExit(unittest.TestCase):
+    def test_fires_when_full_throttle_fraction_low(self) -> None:
+        base = _record(
+            lap_number=1,
+            throttle=_throttle(exit_full_fraction=0.70, pickup_dist_from_min=10.0),
+            exit_phase=_phase(entry_kph=140.0, min_kph=140.0, exit_kph=180.0, min_progress=0.55),
+        )
+        cand = _record(
+            lap_number=2,
+            corner_time_s=6.3,
+            throttle=_throttle(exit_full_fraction=0.35, pickup_dist_from_min=12.0),
+            exit_phase=_phase(entry_kph=135.0, min_kph=135.0, exit_kph=174.0, min_progress=0.55),
+        )
+        hit = detect_weak_exit(cand, _baseline_from(base), time_loss_s=0.3)
+        self.assertIsNotNone(hit)
+        assert hit is not None
+        self.assertEqual(hit.detector, DETECTOR_WEAK_EXIT)
+
+    def test_blocked_when_fraction_delta_too_small(self) -> None:
+        base = _record(
+            lap_number=1,
+            throttle=_throttle(exit_full_fraction=0.70, pickup_dist_from_min=10.0),
+        )
+        cand = _record(
+            lap_number=2,
+            corner_time_s=6.3,
+            throttle=_throttle(exit_full_fraction=0.60, pickup_dist_from_min=10.0),
+            exit_phase=_phase(entry_kph=135.0, min_kph=135.0, exit_kph=174.0, min_progress=0.55),
+        )
+        self.assertIsNone(
+            detect_weak_exit(cand, _baseline_from(base), time_loss_s=0.3)
+        )
+
+    def test_blocked_when_pickup_very_late(self) -> None:
+        """If pickup is >= 8m late, exit_phase_loss is the root cause."""
+        base = _record(
+            lap_number=1,
+            throttle=_throttle(exit_full_fraction=0.70, pickup_dist_from_min=10.0),
+        )
+        cand = _record(
+            lap_number=2,
+            corner_time_s=6.3,
+            throttle=_throttle(exit_full_fraction=0.30, pickup_dist_from_min=20.0),
+            exit_phase=_phase(entry_kph=135.0, min_kph=135.0, exit_kph=174.0, min_progress=0.55),
+        )
+        self.assertIsNone(
+            detect_weak_exit(cand, _baseline_from(base), time_loss_s=0.3)
+        )
+
+    def test_blocked_when_baseline_fraction_too_low(self) -> None:
+        base = _record(
+            lap_number=1,
+            throttle=_throttle(exit_full_fraction=0.15, pickup_dist_from_min=10.0),
+        )
+        cand = _record(
+            lap_number=2,
+            corner_time_s=6.3,
+            throttle=_throttle(exit_full_fraction=0.0, pickup_dist_from_min=10.0),
+            exit_phase=_phase(entry_kph=135.0, min_kph=135.0, exit_kph=174.0, min_progress=0.55),
+        )
+        self.assertIsNone(
+            detect_weak_exit(cand, _baseline_from(base), time_loss_s=0.3)
+        )
+
+
+# ---------------------------------------------------------------------------
+# Steering instability
+# ---------------------------------------------------------------------------
+
+
+class TestSteeringInstability(unittest.TestCase):
+    def test_fires_when_candidate_has_many_corrections(self) -> None:
+        base = _record(
+            lap_number=1,
+            exit_steering_correction_count=1,
+        )
+        cand = _record(
+            lap_number=2,
+            corner_time_s=6.3,
+            exit_steering_correction_count=6,
+        )
+        hit = detect_steering_instability(cand, _baseline_from(base), time_loss_s=0.3)
+        self.assertIsNotNone(hit)
+        assert hit is not None
+        self.assertEqual(hit.detector, DETECTOR_STEERING_INSTABILITY)
+
+    def test_blocked_when_count_below_floor(self) -> None:
+        base = _record(lap_number=1, exit_steering_correction_count=0)
+        cand = _record(
+            lap_number=2,
+            corner_time_s=6.3,
+            exit_steering_correction_count=3,  # below floor of 4
+        )
+        self.assertIsNone(
+            detect_steering_instability(cand, _baseline_from(base), time_loss_s=0.3)
+        )
+
+    def test_blocked_when_delta_below_threshold(self) -> None:
+        base = _record(lap_number=1, exit_steering_correction_count=3)
+        cand = _record(
+            lap_number=2,
+            corner_time_s=6.3,
+            exit_steering_correction_count=5,  # delta=2, below threshold of 3
+        )
+        self.assertIsNone(
+            detect_steering_instability(cand, _baseline_from(base), time_loss_s=0.3)
+        )
+
+    def test_blocked_on_compound_corner(self) -> None:
+        base = _record(
+            lap_number=1,
+            is_compound=True,
+            exit_steering_correction_count=1,
+        )
+        cand = _record(
+            lap_number=2,
+            corner_time_s=6.3,
+            is_compound=True,
+            exit_steering_correction_count=8,
+        )
+        self.assertIsNone(
+            detect_steering_instability(cand, _baseline_from(base), time_loss_s=0.3)
+        )
+
+    def test_blocked_when_baseline_too_noisy(self) -> None:
+        base = _record(lap_number=1, exit_steering_correction_count=9)
+        cand = _record(
+            lap_number=2,
+            corner_time_s=6.3,
+            exit_steering_correction_count=15,
+        )
+        self.assertIsNone(
+            detect_steering_instability(cand, _baseline_from(base), time_loss_s=0.3)
+        )
+
+
+# ---------------------------------------------------------------------------
 # Integration: run_all_detectors
 # ---------------------------------------------------------------------------
 
@@ -551,7 +714,7 @@ class TestRunAllDetectors(unittest.TestCase):
         base = _record(
             lap_number=1,
             corner_time_s=6.0,
-            brake=_brake(init_dist_m=500.0, trail_depth_m=-5.0, release_rate=1.5),
+            brake=_brake(init_dist_m=500.0, trail_depth_m=-5.0),
             apex=_phase(min_kph=110.0),
             throttle=_throttle(pickup_dist_from_min=10.0),
             exit_phase=_phase(entry_kph=140.0, min_kph=140.0, exit_kph=180.0, min_progress=0.55),
@@ -562,8 +725,6 @@ class TestRunAllDetectors(unittest.TestCase):
             brake=_brake(
                 init_dist_m=480.0,
                 trail_depth_m=8.0,
-                release_rate=6.0,
-                release_brake=0.5,
                 avg_decel=-6.5,
             ),
             apex=_phase(min_kph=100.0),

@@ -10,10 +10,12 @@ interface Props {
 
 const DETECTOR_LABELS: Record<string, string> = {
   early_braking: "Early Braking",
-  trail_brake_past_apex: "Trail Brake Past Apex",
-  abrupt_brake_release: "Abrupt Brake Release",
+  late_braking: "Late Braking",
+  trail_brake_past_apex: "Long Braking",
   over_slow_mid_corner: "Over-slowing Mid-Corner",
-  exit_phase_loss: "Exit Phase Loss",
+  exit_phase_loss: "Late Throttle Pickup",
+  weak_exit: "Weak Exit",
+  steering_instability: "Steering Instability",
 };
 
 const SEVERITY_TONE: Record<string, string> = {

@@ -5,11 +5,13 @@ from __future__ import annotations
 import unittest
 
 from src.analysis.detectors import (
-    DETECTOR_ABRUPT_BRAKE_RELEASE,
     DETECTOR_EARLY_BRAKING,
     DETECTOR_EXIT_PHASE_LOSS,
+    DETECTOR_LATE_BRAKING,
     DETECTOR_OVER_SLOW_MID_CORNER,
+    DETECTOR_STEERING_INSTABILITY,
     DETECTOR_TRAIL_BRAKE_PAST_APEX,
+    DETECTOR_WEAK_EXIT,
 )
 from src.analysis.templates import render_finding_text
 
@@ -83,39 +85,40 @@ class TestTrailBrakePastApexText(unittest.TestCase):
         self.assertIn("releasing", text.lower())
 
 
-class TestAbruptBrakeReleaseText(unittest.TestCase):
+class TestLateBrakingText(unittest.TestCase):
     def _metrics(self) -> dict:
         return {
-            "release_rate_per_s": 6.5,
-            "release_brake_value": 0.55,
-            "baseline_release_rate_per_s": 1.5,
-            "min_speed_delta_kph": -2.5,
-            "corner_time_delta_s": 0.12,
+            "brake_point_delta_m": 10.0,
+            "candidate_brake_distance_m": 510.0,
+            "baseline_brake_distance_m": 500.0,
+            "min_speed_delta_kph": -4.0,
+            "exit_speed_delta_kph": -3.0,
+            "entry_speed_delta_kph": 0.0,
+            "corner_time_delta_s": 0.20,
         }
 
     def test_moderate_text(self) -> None:
         text = render_finding_text(
-            detector=DETECTOR_ABRUPT_BRAKE_RELEASE,
+            detector=DETECTOR_LATE_BRAKING,
             corner_id=2,
             severity="moderate",
             metrics=self._metrics(),
         )
         self.assertIn("T2", text)
-        self.assertIn("Abrupt brake release", text)
-        self.assertIn("0.55", text)
-        self.assertIn("6.5/s", text)
-        self.assertIn("-2.5 kph", text)
+        self.assertIn("Late brake point", text)
+        self.assertIn("10 m", text)
+        self.assertIn("-4.0 kph", text)
 
     def test_minor_text(self) -> None:
         text = render_finding_text(
-            detector=DETECTOR_ABRUPT_BRAKE_RELEASE,
+            detector=DETECTOR_LATE_BRAKING,
             corner_id=2,
             severity="minor",
             metrics=self._metrics(),
         )
         self.assertIn("T2", text)
-        self.assertIn("6.5/s", text)
-        self.assertIn("smoothing", text.lower())
+        self.assertIn("10 m later", text)
+        self.assertIn("braking a touch earlier", text.lower())
 
 
 class TestOverSlowMidCornerText(unittest.TestCase):
@@ -188,6 +191,73 @@ class TestExitPhaseLossText(unittest.TestCase):
         self.assertIn("12 m later", text)
         self.assertIn("0.17 s", text)
         self.assertNotIn("Commit earlier", text)
+
+
+class TestWeakExitText(unittest.TestCase):
+    def _metrics(self) -> dict:
+        return {
+            "exit_full_throttle_fraction": 0.35,
+            "baseline_exit_full_throttle_fraction": 0.70,
+            "exit_full_throttle_fraction_delta": 0.35,
+            "exit_speed_delta_kph": -4.0,
+            "throttle_pickup_delay_m": 2.0,
+            "corner_time_delta_s": 0.15,
+        }
+
+    def test_moderate_text(self) -> None:
+        text = render_finding_text(
+            detector=DETECTOR_WEAK_EXIT,
+            corner_id=6,
+            severity="moderate",
+            metrics=self._metrics(),
+        )
+        self.assertIn("T6", text)
+        self.assertIn("35%", text)
+        self.assertIn("70%", text)
+        self.assertIn("Commit to full throttle", text)
+
+    def test_minor_text(self) -> None:
+        text = render_finding_text(
+            detector=DETECTOR_WEAK_EXIT,
+            corner_id=6,
+            severity="minor",
+            metrics=self._metrics(),
+        )
+        self.assertIn("T6", text)
+        self.assertIn("35%", text)
+        self.assertIn("committing", text.lower())
+
+
+class TestSteeringInstabilityText(unittest.TestCase):
+    def _metrics(self) -> dict:
+        return {
+            "exit_steering_correction_count": 7,
+            "baseline_exit_steering_correction_count": 2,
+            "correction_count_delta": 5,
+            "corner_time_delta_s": 0.10,
+        }
+
+    def test_moderate_text(self) -> None:
+        text = render_finding_text(
+            detector=DETECTOR_STEERING_INSTABILITY,
+            corner_id=3,
+            severity="moderate",
+            metrics=self._metrics(),
+        )
+        self.assertIn("T3", text)
+        self.assertIn("7 steering corrections", text)
+        self.assertIn("2 on best", text)
+
+    def test_minor_text(self) -> None:
+        text = render_finding_text(
+            detector=DETECTOR_STEERING_INSTABILITY,
+            corner_id=3,
+            severity="minor",
+            metrics=self._metrics(),
+        )
+        self.assertIn("T3", text)
+        self.assertIn("7 steering corrections", text)
+        self.assertIn("unwinding", text.lower())
 
 
 class TestRenderFindingTextUnknownDetector(unittest.TestCase):

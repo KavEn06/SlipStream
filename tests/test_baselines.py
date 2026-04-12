@@ -52,6 +52,7 @@ def _make_record(
         gear_at_min_speed=3,
         min_speed_kph=phase.min_speed_kph,
         min_speed_progress_norm=phase.min_speed_progress_norm,
+        exit_steering_correction_count=0,
         sub_corner_records=[],
     )
 
