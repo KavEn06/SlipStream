@@ -14,7 +14,14 @@ import unittest
 from dataclasses import replace
 
 from src.analysis.baselines import CornerBaseline
-from src.analysis.constants import TIME_LOSS_GATE_S
+from src.analysis.constants import (
+    EARLY_BRAKE_ENTRY_SPEED_GUARD_FRACTION,
+    LATE_BRAKE_APEX_SPEED_DELTA_KPH,
+    LATE_BRAKE_EXIT_SPEED_DELTA_KPH,
+    MIN_DECEL_VALID_MPS2,
+    OVER_SLOW_ENTRY_SPEED_GUARD_KPH,
+    TIME_LOSS_GATE_S,
+)
 from src.analysis.corner_records import (
     BrakeEvent,
     CornerRecord,
@@ -129,6 +136,7 @@ def _record(
     brake: BrakeEvent | None = None,
     throttle: ThrottleEvent | None = None,
     exit_steering_correction_count: int = 0,
+    corner_end_progress_norm: float = 0.65,
 ) -> CornerRecord:
     entry = entry or _phase(min_kph=160.0, min_progress=0.30, entry_kph=200.0, exit_kph=140.0)
     apex = apex or _phase(min_kph=100.0, min_progress=0.42)
@@ -149,6 +157,7 @@ def _record(
         gear_at_min_speed=3,
         min_speed_kph=apex.min_speed_kph,
         min_speed_progress_norm=apex.min_speed_progress_norm,
+        corner_end_progress_norm=corner_end_progress_norm,
         exit_steering_correction_count=exit_steering_correction_count,
         sub_corner_records=[],
     )
@@ -757,6 +766,150 @@ class TestRunAllDetectors(unittest.TestCase):
             self.assertGreater(hit.time_loss_s, 0.0)
             self.assertGreaterEqual(hit.pattern_strength, 0.0)
             self.assertLessEqual(hit.pattern_strength, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Fix 1 — Late braking overshoot gate (tighter thresholds)
+# ---------------------------------------------------------------------------
+
+
+class TestLateBrakingOvershotGateTighter(unittest.TestCase):
+    """The tightened overshoot thresholds let marginal overshoots fire."""
+
+    def _base(self) -> CornerRecord:
+        return _record(lap_number=1, corner_time_s=5.7)
+
+    def test_fires_when_apex_crosses_tighter_threshold(self) -> None:
+        # min_speed_delta = -1.6 crosses new threshold of -1.5, exit is fine.
+        base = self._base()
+        cand = _record(
+            apex=_phase(min_kph=base.apex.min_speed_kph + LATE_BRAKE_APEX_SPEED_DELTA_KPH - 0.1),
+            exit_phase=_phase(min_kph=140.0, entry_kph=140.0, exit_kph=178.0),  # exit barely fine
+            brake=_brake(init_dist_m=510.0),  # 10 m later than base default 500
+        )
+        hit = detect_late_braking(cand, _baseline_from(base), 0.3)
+        self.assertIsNotNone(hit)
+
+    def test_blocked_when_both_within_new_thresholds(self) -> None:
+        # apex delta = -1.4 (above -1.5) AND exit delta = -1.9 (above -2.0) → blocked.
+        base = self._base()
+        apex_kph = base.apex.min_speed_kph + LATE_BRAKE_APEX_SPEED_DELTA_KPH + 0.1  # just inside
+        exit_kph = base.exit.exit_speed_kph + LATE_BRAKE_EXIT_SPEED_DELTA_KPH + 0.1
+        cand = _record(
+            apex=_phase(min_kph=apex_kph),
+            exit_phase=_phase(min_kph=140.0, entry_kph=140.0, exit_kph=exit_kph),
+            brake=_brake(init_dist_m=510.0),
+        )
+        hit = detect_late_braking(cand, _baseline_from(base), 0.3)
+        self.assertIsNone(hit)
+
+
+# ---------------------------------------------------------------------------
+# Fix 2 — Over-slow mid-corner entry speed guard
+# ---------------------------------------------------------------------------
+
+
+class TestOverSlowEntrySpeedGuard(unittest.TestCase):
+    def test_blocked_when_candidate_arrived_slower(self) -> None:
+        base = _record(
+            lap_number=1,
+            entry=_phase(min_kph=160.0, min_progress=0.30, entry_kph=200.0, exit_kph=140.0),
+        )
+        # Candidate arrived more than the guard threshold slower.
+        slow_entry_kph = base.entry.entry_speed_kph + OVER_SLOW_ENTRY_SPEED_GUARD_KPH - 0.5
+        cand = _record(
+            entry=_phase(min_kph=160.0, min_progress=0.30, entry_kph=slow_entry_kph, exit_kph=140.0),
+            apex=_phase(min_kph=93.0),  # clearly slower apex
+        )
+        hit = detect_over_slow_mid_corner(cand, _baseline_from(base), 0.3)
+        self.assertIsNone(hit)
+
+    def test_fires_when_entry_speed_comparable(self) -> None:
+        base = _record(lap_number=1)
+        # Candidate has similar entry speed and a clearly slow apex.
+        cand = _record(
+            entry=_phase(min_kph=160.0, min_progress=0.30, entry_kph=199.0, exit_kph=140.0),
+            apex=_phase(min_kph=93.0),  # -7 kph slower apex
+            exit_phase=_phase(min_kph=138.0, entry_kph=138.0, exit_kph=178.0),
+        )
+        hit = detect_over_slow_mid_corner(cand, _baseline_from(base), 0.3)
+        self.assertIsNotNone(hit)
+
+
+# ---------------------------------------------------------------------------
+# Fix 4 — Absolute decel floor for early/late braking
+# ---------------------------------------------------------------------------
+
+
+class TestBrakingDecelerationFloor(unittest.TestCase):
+    """Both early_braking and late_braking must skip laps below MIN_DECEL_VALID_MPS2."""
+
+    def _below_floor_brake(self, **kwargs) -> BrakeEvent:
+        """Brake event with avg decel just below the absolute floor."""
+        return _brake(avg_decel=-(MIN_DECEL_VALID_MPS2 - 0.1), **kwargs)
+
+    def test_early_braking_blocked_when_candidate_decel_too_low(self) -> None:
+        base = _record(lap_number=1)
+        cand = _record(
+            brake=self._below_floor_brake(init_dist_m=485.0),  # early brake
+        )
+        hit = detect_early_braking(cand, _baseline_from(base), 0.3)
+        self.assertIsNone(hit)
+
+    def test_early_braking_blocked_when_baseline_decel_too_low(self) -> None:
+        base = _record(lap_number=1, brake=self._below_floor_brake())
+        cand = _record(brake=_brake(init_dist_m=485.0))
+        hit = detect_early_braking(cand, _baseline_from(base), 0.3)
+        self.assertIsNone(hit)
+
+    def test_late_braking_blocked_when_candidate_decel_too_low(self) -> None:
+        base = _record(lap_number=1)
+        cand = _record(
+            brake=self._below_floor_brake(init_dist_m=510.0),  # late brake
+            apex=_phase(min_kph=93.0),
+        )
+        hit = detect_late_braking(cand, _baseline_from(base), 0.3)
+        self.assertIsNone(hit)
+
+    def test_late_braking_blocked_when_baseline_decel_too_low(self) -> None:
+        base = _record(lap_number=1, brake=self._below_floor_brake())
+        cand = _record(brake=_brake(init_dist_m=510.0), apex=_phase(min_kph=93.0))
+        hit = detect_late_braking(cand, _baseline_from(base), 0.3)
+        self.assertIsNone(hit)
+
+
+# ---------------------------------------------------------------------------
+# Fix 5 — Early braking relative entry speed guard
+# ---------------------------------------------------------------------------
+
+
+class TestEarlyBrakingRelativeEntryGuard(unittest.TestCase):
+    def test_blocked_when_entry_delta_exceeds_relative_threshold(self) -> None:
+        """Candidate arrived more than 2% of baseline entry speed hotter → skip."""
+        base = _record(lap_number=1)
+        base_entry_kph = base.entry.entry_speed_kph
+        # Slightly above the 2% threshold.
+        hot_entry_kph = base_entry_kph + EARLY_BRAKE_ENTRY_SPEED_GUARD_FRACTION * base_entry_kph + 1.0
+        cand = _record(
+            entry=_phase(min_kph=160.0, min_progress=0.30, entry_kph=hot_entry_kph, exit_kph=140.0),
+            brake=_brake(init_dist_m=485.0),  # early brake
+        )
+        hit = detect_early_braking(cand, _baseline_from(base), 0.3)
+        self.assertIsNone(hit)
+
+    def test_fires_when_entry_delta_within_threshold(self) -> None:
+        """Candidate arrived within 2% of baseline entry speed → should still fire."""
+        base = _record(lap_number=1)
+        base_entry_kph = base.entry.entry_speed_kph
+        # Just inside the threshold.
+        warm_entry_kph = base_entry_kph + EARLY_BRAKE_ENTRY_SPEED_GUARD_FRACTION * base_entry_kph - 1.0
+        cand = _record(
+            entry=_phase(min_kph=160.0, min_progress=0.30, entry_kph=warm_entry_kph, exit_kph=140.0),
+            brake=_brake(init_dist_m=485.0),
+            exit_phase=_phase(min_kph=138.0, entry_kph=138.0, exit_kph=148.0),
+        )
+        hit = detect_early_braking(cand, _baseline_from(base), 0.3)
+        self.assertIsNotNone(hit)
 
 
 if __name__ == "__main__":  # pragma: no cover

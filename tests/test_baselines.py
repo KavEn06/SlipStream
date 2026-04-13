@@ -15,12 +15,13 @@ from src.analysis.corner_records import (
     PhaseMetrics,
     ThrottleEvent,
 )
+from src.analysis.constants import BASELINE_ENTRY_SPEED_ADVANTAGE_KPH
 
 
-def _make_phase(min_kph: float = 120.0) -> PhaseMetrics:
+def _make_phase(min_kph: float = 120.0, entry_kph: float = 180.0) -> PhaseMetrics:
     return PhaseMetrics(
         time_s=3.0,
-        entry_speed_kph=180.0,
+        entry_speed_kph=entry_kph,
         exit_speed_kph=150.0,
         min_speed_kph=min_kph,
         min_speed_progress_norm=0.4,
@@ -34,8 +35,9 @@ def _make_record(
     corner_time_s: float,
     alignment_used_fallback: bool = False,
     alignment_quality_m: float = 0.3,
+    entry_kph: float = 180.0,
 ) -> CornerRecord:
-    phase = _make_phase()
+    phase = _make_phase(entry_kph=entry_kph)
     return CornerRecord(
         lap_number=lap_number,
         corner_id=corner_id,
@@ -52,6 +54,7 @@ def _make_record(
         gear_at_min_speed=3,
         min_speed_kph=phase.min_speed_kph,
         min_speed_progress_norm=phase.min_speed_progress_norm,
+        corner_end_progress_norm=0.65,
         exit_steering_correction_count=0,
         sub_corner_records=[],
     )
@@ -189,6 +192,48 @@ class TestBuildPerCornerBaselines(unittest.TestCase):
         self.assertIsInstance(baseline, CornerBaseline)
         with self.assertRaises(Exception):
             baseline.corner_id = 99  # type: ignore[misc]
+
+
+class TestBaselineEntrySpeedFilter(unittest.TestCase):
+    def test_excludes_outlier_entry_speed_lap(self) -> None:
+        """A lap with a large entry speed advantage must not become the baseline."""
+        advantage = BASELINE_ENTRY_SPEED_ADVANTAGE_KPH + 1.0  # just over the limit
+        records = {
+            1: [
+                # Lap 1 is fastest but arrived hot — should be excluded.
+                _make_record(corner_id=1, lap_number=1, corner_time_s=4.5, entry_kph=180.0 + advantage),
+                # Lap 2 is slightly slower but arrived at normal speed — should win.
+                _make_record(corner_id=1, lap_number=2, corner_time_s=4.8, entry_kph=180.0),
+                _make_record(corner_id=1, lap_number=3, corner_time_s=5.0, entry_kph=180.0),
+            ]
+        }
+        baselines = build_per_corner_baselines(records)
+        self.assertEqual(baselines[1].reference_lap_number, 2)
+
+    def test_normal_entry_variation_does_not_exclude(self) -> None:
+        """Small entry speed differences (within threshold) do not affect selection."""
+        records = {
+            1: [
+                # Lap 1 is fastest with a modest entry advantage — still eligible.
+                _make_record(corner_id=1, lap_number=1, corner_time_s=4.5, entry_kph=183.0),
+                _make_record(corner_id=1, lap_number=2, corner_time_s=4.8, entry_kph=180.0),
+            ]
+        }
+        baselines = build_per_corner_baselines(records)
+        self.assertEqual(baselines[1].reference_lap_number, 1)
+
+    def test_fallback_when_all_outliers(self) -> None:
+        """If every usable lap would be excluded, fall back to the fastest among all."""
+        advantage = BASELINE_ENTRY_SPEED_ADVANTAGE_KPH + 1.0
+        records = {
+            1: [
+                _make_record(corner_id=1, lap_number=1, corner_time_s=4.5, entry_kph=180.0 + advantage),
+                _make_record(corner_id=1, lap_number=2, corner_time_s=4.9, entry_kph=180.0 + advantage),
+            ]
+        }
+        baselines = build_per_corner_baselines(records)
+        # Falls back to fastest of all usable records.
+        self.assertEqual(baselines[1].reference_lap_number, 1)
 
 
 if __name__ == "__main__":  # pragma: no cover

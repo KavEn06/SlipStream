@@ -8,7 +8,7 @@ contents of the serialized ``session_analysis.json``.
 from __future__ import annotations
 
 
-ANALYSIS_VERSION = "2026.04-v4-corner-analysis"
+ANALYSIS_VERSION = "2026.04-v5-detector-fixes"
 
 # --- Event detection --------------------------------------------------------
 # Meters of approach ahead of the corner that the brake-initiation search
@@ -61,12 +61,21 @@ TRAIL_BRAKE_PAST_APEX_M = 5.0
 # For late braking: candidate braked this many meters later than baseline.
 LATE_BRAKE_DELTA_M = 5.0
 
+# Overshoot confirmation thresholds for late braking (tighter than v4).
+# The late brake must hurt EITHER the apex OR the exit by at least this much.
+LATE_BRAKE_APEX_SPEED_DELTA_KPH = -1.5
+LATE_BRAKE_EXIT_SPEED_DELTA_KPH = -2.0
+
 # For the over-slow detector, the candidate's min speed must be at least this
 # much below the baseline's.
 OVER_SLOW_MIN_SPEED_DELTA_KPH = -3.0
 
 # And the exit speed must be no faster than baseline.
 OVER_SLOW_EXIT_SPEED_DELTA_KPH = 0.0
+
+# Skip over_slow if the candidate arrived at least this much slower than the
+# baseline — a slower approach naturally produces a slower apex.
+OVER_SLOW_ENTRY_SPEED_GUARD_KPH = -2.0
 
 # Exit-phase loss fires when throttle pickup is delayed by at least this many
 # meters relative to baseline.
@@ -77,6 +86,21 @@ EXIT_PHASE_LOSS_THROTTLE_DELAY_M = 8.0
 WEAK_EXIT_FRACTION_DELTA = 0.15
 # And exit speed must be at least this much slower.
 WEAK_EXIT_EXIT_SPEED_DELTA_KPH = -2.0
+
+# Absolute decel floor for the braking family of detectors. Both the baseline
+# and the candidate must exceed this to avoid comparing near-coast laps.
+MIN_DECEL_VALID_MPS2 = 2.0
+
+# Early-braking entry speed guard expressed as a fraction of baseline entry
+# speed. Candidate that arrived at most (fraction * baseline_entry) kph hotter
+# than baseline gets a pass — early braking is prudent, not wasteful.
+EARLY_BRAKE_ENTRY_SPEED_GUARD_FRACTION = 0.02
+
+# Baseline selection: exclude a usable lap from candidacy if its entry speed
+# exceeds the median entry speed by more than this amount. Prevents a lap that
+# arrived significantly hotter from becoming the baseline and making every
+# other lap appear artificially slow.
+BASELINE_ENTRY_SPEED_ADVANTAGE_KPH = 5.0
 
 # Steering instability: minimum correction-count delta vs baseline to fire.
 STEERING_INSTABILITY_CORRECTION_DELTA = 3

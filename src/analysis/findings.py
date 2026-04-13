@@ -268,6 +268,15 @@ def _apply_mutual_suppression(findings: list[Finding]) -> list[Finding]:
 
         dropped_ids: set[str] = set()
 
+        # Early braking and late braking are mutually exclusive (you can't brake
+        # both too early AND too late on the same lap). Keep the higher-ranking
+        # one so the driver sees the dominant root cause.
+        if early_brake is not None and late_brake is not None:
+            if _ranking_key(early_brake) >= _ranking_key(late_brake):
+                dropped_ids.add(late_brake.finding_id)
+            else:
+                dropped_ids.add(early_brake.finding_id)
+
         # Entry causes dominate apex symptom + exit consequence.
         for entry_cause in (early_brake, late_brake):
             if entry_cause is not None:

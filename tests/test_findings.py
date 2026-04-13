@@ -65,6 +65,7 @@ def _make_record(
         gear_at_min_speed=3,
         min_speed_kph=100.0,
         min_speed_progress_norm=0.42,
+        corner_end_progress_norm=0.65,
         exit_steering_correction_count=0,
         sub_corner_records=[],
     )
@@ -407,6 +408,48 @@ class TestMutualSuppression(unittest.TestCase):
         detectors = {(f.detector, f.lap_number) for f in result.findings_all}
         self.assertIn((DETECTOR_TRAIL_BRAKE_PAST_APEX, 2), detectors)
         self.assertIn((DETECTOR_OVER_SLOW_MID_CORNER, 3), detectors)
+
+    def test_early_and_late_braking_mutually_suppress(self) -> None:
+        """If both early and late braking fire on the same corner+lap, only the
+        higher-ranking one survives (they are mutually exclusive by definition)."""
+        records = {1: [_make_record(corner_id=1, lap_number=2)]}
+        # early_brake has higher pattern_strength → higher ranking key → survives.
+        hits = [
+            _make_hit(
+                detector=DETECTOR_EARLY_BRAKING,
+                time_loss_s=0.3,
+                pattern_strength=0.9,
+            ),
+            _make_hit(
+                detector=DETECTOR_LATE_BRAKING,
+                time_loss_s=0.3,
+                pattern_strength=0.5,
+            ),
+        ]
+        result = build_findings(hits, records)
+        detectors = {f.detector for f in result.findings_all}
+        self.assertIn(DETECTOR_EARLY_BRAKING, detectors)
+        self.assertNotIn(DETECTOR_LATE_BRAKING, detectors)
+
+    def test_early_late_suppression_keeps_stronger_one(self) -> None:
+        """When late braking has higher strength, early braking is dropped."""
+        records = {1: [_make_record(corner_id=1, lap_number=2)]}
+        hits = [
+            _make_hit(
+                detector=DETECTOR_EARLY_BRAKING,
+                time_loss_s=0.3,
+                pattern_strength=0.4,
+            ),
+            _make_hit(
+                detector=DETECTOR_LATE_BRAKING,
+                time_loss_s=0.3,
+                pattern_strength=0.8,
+            ),
+        ]
+        result = build_findings(hits, records)
+        detectors = {f.detector for f in result.findings_all}
+        self.assertNotIn(DETECTOR_EARLY_BRAKING, detectors)
+        self.assertIn(DETECTOR_LATE_BRAKING, detectors)
 
 
 if __name__ == "__main__":  # pragma: no cover

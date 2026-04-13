@@ -114,6 +114,7 @@ class CornerRecord:
     gear_at_min_speed: int | None
     min_speed_kph: float
     min_speed_progress_norm: float
+    corner_end_progress_norm: float
     exit_steering_correction_count: int
     sub_corner_records: list["CornerRecord"] = field(default_factory=list)
 
@@ -134,6 +135,7 @@ class CornerRecord:
             "gear_at_min_speed": self.gear_at_min_speed,
             "min_speed_kph": self.min_speed_kph,
             "min_speed_progress_norm": self.min_speed_progress_norm,
+            "corner_end_progress_norm": self.corner_end_progress_norm,
             "exit_steering_correction_count": self.exit_steering_correction_count,
             "sub_corner_records": [record.to_dict() for record in self.sub_corner_records],
         }
@@ -402,6 +404,7 @@ def _build_corner_record(
         gear_at_min_speed=gear_at_min_speed,
         min_speed_kph=min_speed_kph,
         min_speed_progress_norm=min_speed_progress_norm,
+        corner_end_progress_norm=float(end_p),
         exit_steering_correction_count=exit_steering_corrections,
         sub_corner_records=sub_corner_records,
     )
@@ -451,6 +454,7 @@ def _degenerate_corner_record(
         gear_at_min_speed=None,
         min_speed_kph=phase.min_speed_kph,
         min_speed_progress_norm=phase.min_speed_progress_norm,
+        corner_end_progress_norm=float(end_p),
         exit_steering_correction_count=0,
         sub_corner_records=[],
     )

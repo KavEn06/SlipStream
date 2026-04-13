@@ -25,8 +25,13 @@ from src.analysis.baselines import CornerBaseline
 from src.analysis.constants import (
     ALIGNMENT_QUALITY_POOR_M,
     EARLY_BRAKE_DELTA_M,
+    EARLY_BRAKE_ENTRY_SPEED_GUARD_FRACTION,
     EXIT_PHASE_LOSS_THROTTLE_DELAY_M,
+    LATE_BRAKE_APEX_SPEED_DELTA_KPH,
     LATE_BRAKE_DELTA_M,
+    LATE_BRAKE_EXIT_SPEED_DELTA_KPH,
+    MIN_DECEL_VALID_MPS2,
+    OVER_SLOW_ENTRY_SPEED_GUARD_KPH,
     OVER_SLOW_EXIT_SPEED_DELTA_KPH,
     OVER_SLOW_MIN_SPEED_DELTA_KPH,
     STEERING_INSTABILITY_BASELINE_CEILING,
@@ -173,18 +178,17 @@ def detect_early_braking(
         return None
 
     # False-positive: candidate arrived meaningfully hotter → early brake is
-    # prudent, not wasteful.
+    # prudent, not wasteful. Use a relative guard (2% of baseline entry speed)
+    # so the threshold scales with corner approach speed.
     entry_speed_delta = record.entry.entry_speed_kph - base.entry.entry_speed_kph
-    if entry_speed_delta > 5.0:
+    if entry_speed_delta > EARLY_BRAKE_ENTRY_SPEED_GUARD_FRACTION * base.entry.entry_speed_kph:
         return None
 
-    # False-positive: baseline was coasting, not braking — comparison is
-    # degenerate. Guard against zero baseline decel.
+    # False-positive: either lap is braking so lightly that avg decel is below
+    # the absolute floor — the comparison is not meaningful.
     baseline_decel = abs(base.brake.avg_decel_mps2)
     candidate_decel = abs(record.brake.avg_decel_mps2)
-    if baseline_decel < 1e-3 or candidate_decel < 1e-3:
-        return None
-    if baseline_decel * 1.5 < candidate_decel:
+    if baseline_decel < MIN_DECEL_VALID_MPS2 or candidate_decel < MIN_DECEL_VALID_MPS2:
         return None
 
     pattern_strength = _saturate(
@@ -308,8 +312,9 @@ def detect_late_braking(
     min_speed_delta = record.apex.min_speed_kph - base.apex.min_speed_kph
     exit_speed_delta = record.exit.exit_speed_kph - base.exit.exit_speed_kph
 
-    # Overshoot confirmation: the late brake must have hurt.
-    if min_speed_delta >= -2.0 and exit_speed_delta >= -3.0:
+    # Overshoot confirmation: the late brake must have hurt either the apex
+    # or the exit (tighter thresholds vs v4 to catch more real overshoots).
+    if min_speed_delta >= LATE_BRAKE_APEX_SPEED_DELTA_KPH and exit_speed_delta >= LATE_BRAKE_EXIT_SPEED_DELTA_KPH:
         return None
 
     # False-positive: exit speed gained means the late brake was a
@@ -323,10 +328,11 @@ def detect_late_braking(
     if entry_speed_delta < -3.0:
         return None
 
-    # Baseline decel guard (same as early_braking).
+    # False-positive: either lap is braking so lightly that avg decel is below
+    # the absolute floor — the comparison is not meaningful.
     baseline_decel = abs(base.brake.avg_decel_mps2)
     candidate_decel = abs(record.brake.avg_decel_mps2)
-    if baseline_decel < 1e-3 or candidate_decel < 1e-3:
+    if baseline_decel < MIN_DECEL_VALID_MPS2 or candidate_decel < MIN_DECEL_VALID_MPS2:
         return None
 
     pattern_strength = _saturate(
@@ -374,6 +380,12 @@ def detect_over_slow_mid_corner(
     record: CornerRecord, baseline: CornerBaseline, time_loss_s: float
 ) -> DetectorHit | None:
     base = baseline.reference_record
+
+    # False-positive: candidate arrived meaningfully slower — a slower approach
+    # naturally produces a slower apex regardless of technique.
+    entry_speed_delta = record.entry.entry_speed_kph - base.entry.entry_speed_kph
+    if entry_speed_delta < OVER_SLOW_ENTRY_SPEED_GUARD_KPH:
+        return None
 
     min_speed_delta = record.apex.min_speed_kph - base.apex.min_speed_kph
     if min_speed_delta > OVER_SLOW_MIN_SPEED_DELTA_KPH:
@@ -459,16 +471,17 @@ def detect_exit_phase_loss(
         "exit_full_throttle_fraction": record.throttle.exit_full_throttle_fraction,
         "corner_time_delta_s": time_loss_s,
     }
+    corner_end = record.corner_end_progress_norm
     evidence = [
         {
             "column": "Throttle",
             "progress_start": float(record.apex.min_speed_progress_norm),
-            "progress_end": float(record.throttle.pickup_progress_norm) + 0.03,
+            "progress_end": min(float(record.throttle.pickup_progress_norm) + 0.03, corner_end),
         },
         {
             "column": "SpeedKph",
             "progress_start": float(record.apex.min_speed_progress_norm),
-            "progress_end": float(record.apex.min_speed_progress_norm) + 0.05,
+            "progress_end": min(float(record.apex.min_speed_progress_norm) + 0.05, corner_end),
         },
     ]
     return DetectorHit(
@@ -529,16 +542,18 @@ def detect_weak_exit(
         "throttle_pickup_delay_m": pickup_delay_m,
         "corner_time_delta_s": time_loss_s,
     }
+    corner_end = record.corner_end_progress_norm
+    pickup_p = float(record.throttle.pickup_progress_norm)
     evidence = [
         {
             "column": "Throttle",
-            "progress_start": float(record.throttle.pickup_progress_norm),
-            "progress_end": float(record.apex.min_speed_progress_norm) + 0.08,
+            "progress_start": pickup_p,
+            "progress_end": min(pickup_p + 0.06, corner_end),
         },
         {
             "column": "SpeedKph",
             "progress_start": float(record.apex.min_speed_progress_norm),
-            "progress_end": float(record.apex.min_speed_progress_norm) + 0.08,
+            "progress_end": min(float(record.apex.min_speed_progress_norm) + 0.08, corner_end),
         },
     ]
     return DetectorHit(

@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable
 
+from src.analysis.constants import BASELINE_ENTRY_SPEED_ADVANTAGE_KPH
 from src.analysis.corner_records import CornerRecord
 
 
@@ -84,9 +85,20 @@ def _select_baseline(
     if not usable:
         return None
 
-    # Sort by (corner_time_s, lap_number) so ties resolve to the earliest lap.
-    usable_sorted = sorted(usable, key=lambda r: (r.corner_time_s, r.lap_number))
-    best = usable_sorted[0]
+    # Exclude laps whose entry speed advantage exceeds the threshold. A lap
+    # that arrived significantly hotter than peers becomes an unfair baseline —
+    # every other lap looks artificially slow through no fault of technique.
+    entry_speeds = sorted(r.entry.entry_speed_kph for r in usable)
+    median_entry = entry_speeds[len(entry_speeds) // 2]
+    non_outlier = [
+        r for r in usable
+        if r.entry.entry_speed_kph - median_entry <= BASELINE_ENTRY_SPEED_ADVANTAGE_KPH
+    ]
+    candidates = non_outlier if non_outlier else usable  # fallback if all are outliers
+
+    # Among eligible candidates, sort by (corner_time_s, lap_number) so ties
+    # resolve to the earliest lap.
+    best = min(candidates, key=lambda r: (r.corner_time_s, r.lap_number))
 
     candidate_lap_numbers = sorted({r.lap_number for r in records})
     return CornerBaseline(
