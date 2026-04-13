@@ -15,7 +15,9 @@ const DETECTOR_LABELS: Record<string, string> = {
   over_slow_mid_corner: "Over-slowing Mid-Corner",
   exit_phase_loss: "Late Throttle Pickup",
   weak_exit: "Weak Exit",
-  steering_instability: "Steering Instability",
+  steering_instability: "Steering Corrections",
+  abrupt_brake_release: "Abrupt Brake Release",
+  long_coasting_phase: "Coasting Too Long",
 };
 
 const SEVERITY_TONE: Record<string, string> = {
@@ -24,60 +26,103 @@ const SEVERITY_TONE: Record<string, string> = {
   major: "border-red-500/28 bg-red-500/12 text-red-500",
 };
 
+const SEVERITY_DOT: Record<string, string> = {
+  minor: "bg-text-muted",
+  moderate: "bg-amber-500",
+  major: "bg-red-500",
+};
+
 function humanizeDetector(detector: string): string {
   return DETECTOR_LABELS[detector] ?? detector;
+}
+
+/** Sub-corners use parent_id * 100 + index (e.g. 401 = T4). Always show the parent. */
+function cornerLabel(cornerId: number): string {
+  const parent = cornerId >= 100 ? Math.floor(cornerId / 100) : cornerId;
+  return `T${parent}`;
 }
 
 function formatSecondsLost(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(3)}s`;
 }
 
-interface FindingCardProps {
+interface CompactFindingCardProps {
   finding: AnalysisFinding;
   selected: boolean;
   onClick: () => void;
 }
 
-function FindingCard({ finding, selected, onClick }: FindingCardProps) {
-  const tone = SEVERITY_TONE[finding.severity] ?? SEVERITY_TONE.minor;
+function CompactFindingCard({ finding, selected, onClick }: CompactFindingCardProps) {
+  const dot = SEVERITY_DOT[finding.severity] ?? SEVERITY_DOT.minor;
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`w-full rounded-2xl border p-4 text-left transition-colors cursor-pointer ${
+      className={`w-full rounded-xl border px-3.5 py-3 text-left transition-colors cursor-pointer ${
         selected
           ? "border-accent/50 bg-accent/8 ring-1 ring-accent/25"
           : "border-border/70 bg-surface-2/78 hover:border-border-strong hover:bg-surface-2/90"
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
-            T{finding.corner_id} · Lap {finding.lap_number}
-          </p>
-          <p className="mt-1 text-sm font-medium text-text-primary">
-            {humanizeDetector(finding.detector)}
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          <span
-            className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] ${tone}`}
-          >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-[0.16em] text-text-muted">
+          {cornerLabel(finding.corner_id)} · Lap {finding.lap_number}
+        </p>
+        <span className="font-mono text-[10px] text-text-muted shrink-0">
+          {formatSecondsLost(finding.time_loss_s)}
+        </span>
+      </div>
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <p className="text-sm font-medium text-text-primary truncate">
+          {humanizeDetector(finding.detector)}
+        </p>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} />
+          <span className="text-[10px] capitalize text-text-secondary">
             {finding.severity}
-          </span>
-          <span className="font-mono text-xs text-text-muted">
-            {formatSecondsLost(finding.time_loss_s)} lost
           </span>
         </div>
       </div>
-      <p className="mt-3 text-sm text-text-secondary">{finding.templated_text}</p>
-      <p className="mt-2 text-[10px] uppercase tracking-[0.16em] text-text-muted">
-        Confidence {(finding.confidence * 100).toFixed(0)}%
-        {selected && (
-          <span className="ml-2 text-accent/80">· tap again to collapse</span>
-        )}
-      </p>
     </button>
+  );
+}
+
+interface DetailHeaderProps {
+  finding: AnalysisFinding;
+  cornerDef: CornerDefinition;
+}
+
+function DetailHeader({ finding, cornerDef }: DetailHeaderProps) {
+  const tone = SEVERITY_TONE[finding.severity] ?? SEVERITY_TONE.minor;
+  return (
+    <div className="mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-text-muted">
+          {cornerLabel(finding.corner_id)} · {cornerDef.direction} corner · Lap {finding.lap_number}
+        </span>
+        <span
+          className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] ${tone}`}
+        >
+          {finding.severity}
+        </span>
+      </div>
+      <div className="flex items-start justify-between gap-3">
+        <h4 className="text-base font-semibold text-text-primary">
+          {humanizeDetector(finding.detector)}
+        </h4>
+        <div className="text-right shrink-0">
+          <p className="font-mono text-sm font-medium text-text-primary">
+            {formatSecondsLost(finding.time_loss_s)}
+          </p>
+          <p className="text-[10px] text-text-muted">
+            {(finding.confidence * 100).toFixed(0)}% confidence
+          </p>
+        </div>
+      </div>
+      <p className="mt-2 text-sm text-text-secondary leading-relaxed">
+        {finding.templated_text}
+      </p>
+    </div>
   );
 }
 
@@ -115,6 +160,16 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
     void load();
   }, [load]);
 
+  // Auto-select first finding when analysis loads
+  useEffect(() => {
+    if (analysis) {
+      const top = analysis.findings_top;
+      if (top.length > 0 && !selectedFindingId) {
+        setSelectedFindingId(top[0].finding_id);
+      }
+    }
+  }, [analysis, selectedFindingId]);
+
   const handleRun = async () => {
     setRunning(true);
     setError(null);
@@ -139,12 +194,17 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
     ? findings.find((f) => f.finding_id === selectedFindingId) ?? null
     : null;
 
-  const cornerDefForFinding = (finding: AnalysisFinding): CornerDefinition | undefined =>
-    analysis?.corner_definitions?.find((c) => c.corner_id === finding.corner_id);
+  const cornerDefForFinding = (finding: AnalysisFinding): CornerDefinition | undefined => {
+    const parentId = finding.corner_id >= 100 ? Math.floor(finding.corner_id / 100) : finding.corner_id;
+    return analysis?.corner_definitions?.find((c) => c.corner_id === parentId);
+  };
+
+  const selectedCornerDef = selectedFinding ? cornerDefForFinding(selectedFinding) : null;
 
   return (
     <div>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-text-muted">
             Corner Analysis
@@ -160,7 +220,7 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={handleRun}
@@ -190,56 +250,54 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
           threshold.
         </p>
       ) : (
-        <>
-          <div className="mt-5 grid gap-3 md:grid-cols-2">
+        <div className="mt-5 flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,300px)_1fr] lg:gap-5 lg:h-[calc(100vh-250px)] lg:overflow-hidden lg:items-stretch">
+          {/* LEFT — full-height scrollable findings list */}
+          <div className="flex flex-col gap-2 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-2">
             {findings.map((finding) => (
-              <FindingCard
+              <CompactFindingCard
                 key={finding.finding_id}
                 finding={finding}
                 selected={finding.finding_id === selectedFindingId}
-                onClick={() =>
-                  setSelectedFindingId((prev) =>
-                    prev === finding.finding_id ? null : finding.finding_id,
-                  )
-                }
+                onClick={() => setSelectedFindingId(finding.finding_id)}
               />
             ))}
+
+            {analysis.findings_all.length > analysis.findings_top.length && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAll((prev) => !prev);
+                  setSelectedFindingId(null);
+                }}
+                className="motion-safe-color mt-1 mb-2 inline-flex h-9 items-center rounded-full border border-border/70 bg-surface-2/84 px-4 text-xs font-medium uppercase tracking-[0.14em] text-text-secondary hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer self-start shrink-0"
+              >
+                {showAll
+                  ? `Show top ${analysis.findings_top.length}`
+                  : `Show all ${analysis.findings_all.length}`}
+              </button>
+            )}
           </div>
 
-          {/* Detail panel — shown when a finding is selected */}
-          {selectedFinding && (() => {
-            const cornerDef = cornerDefForFinding(selectedFinding);
-            if (!cornerDef || !analysis.reference_length_m) return null;
-            return (
-              <div className="mt-4 rounded-2xl border border-border/60 bg-surface-2/50 p-4">
-                <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.16em] text-text-muted">
-                  T{selectedFinding.corner_id} · {humanizeDetector(selectedFinding.detector)}
-                  {" · "}
-                  <span className="text-accent/80">{cornerDef.direction} corner</span>
-                </p>
+          {/* RIGHT — full-height scrollable detail panel */}
+          <div className="lg:h-full lg:min-h-0 lg:overflow-y-auto">
+            {selectedFinding && selectedCornerDef && analysis.reference_length_m ? (
+              <div className="rounded-2xl border border-border/60 bg-surface-2/50 p-4">
+                <DetailHeader finding={selectedFinding} cornerDef={selectedCornerDef} />
                 <CornerDetailView
                   finding={selectedFinding}
-                  cornerDef={cornerDef}
+                  cornerDef={selectedCornerDef}
                   sessionId={sessionId}
                   baselineLapNumber={analysis.reference_lap_number}
                   referenceLengthM={analysis.reference_length_m}
                 />
               </div>
-            );
-          })()}
-
-          {analysis.findings_all.length > analysis.findings_top.length && (
-            <button
-              type="button"
-              onClick={() => setShowAll((prev) => !prev)}
-              className="motion-safe-color mt-4 inline-flex h-9 items-center rounded-full border border-border/70 bg-surface-2/84 px-4 text-xs font-medium uppercase tracking-[0.14em] text-text-secondary hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer"
-            >
-              {showAll
-                ? `Show top ${analysis.findings_top.length}`
-                : `Show all ${analysis.findings_all.length}`}
-            </button>
-          )}
-        </>
+            ) : (
+              <div className="hidden lg:flex h-48 items-center justify-center rounded-2xl border border-border/40 bg-surface-2/30">
+                <p className="text-sm text-text-muted">Select a finding to view corner detail</p>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

@@ -91,6 +91,21 @@ def render_ai_context(
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _corner_label(corner_id: int) -> str:
+    """Return a human-readable label like 'T4' for any corner_id.
+
+    Sub-corners use the scheme parent_id * 100 + sub_index (e.g. 401 = T4).
+    Display always shows the parent turn number.
+    """
+    parent = corner_id // 100 if corner_id >= 100 else corner_id
+    return f"T{parent}"
+
+
+# ---------------------------------------------------------------------------
 # Per-detector templates
 # ---------------------------------------------------------------------------
 
@@ -101,12 +116,12 @@ def _early_braking_text(corner_id: int, severity: str, m: dict[str, Any]) -> str
     exit_delta = float(m["exit_speed_delta_kph"])
     if severity == "minor":
         return (
-            f"In T{corner_id}, braked {delta:.0f} m earlier than your best lap "
+            f"In {_corner_label(corner_id)}, braked {delta:.0f} m earlier than your best lap "
             f"through here, costing {time_loss:.2f} s. Try delaying turn-in "
             f"brake point."
         )
     return (
-        f"T{corner_id}: Early brake point ({delta:.0f} m before your best), "
+        f"{_corner_label(corner_id)}: Early brake point ({delta:.0f} m before your best), "
         f"{time_loss:.2f} s lost. Exit speed {exit_delta:+.1f} kph vs best — "
         f"early braking isn't buying exit, it's costing time."
     )
@@ -120,12 +135,12 @@ def _trail_brake_past_apex_text(
     time_loss = float(m["corner_time_delta_s"])
     if severity == "minor":
         return (
-            f"In T{corner_id}, brake is held {trail_depth:.0f} m past the "
+            f"In {_corner_label(corner_id)}, brake is held {trail_depth:.0f} m past the "
             f"slowest point. Try releasing a touch earlier to let the car "
             f"rotate. {time_loss:.2f} s lost."
         )
     return (
-        f"T{corner_id}: Still trail braking {trail_depth:.0f} m past your "
+        f"{_corner_label(corner_id)}: Still trail braking {trail_depth:.0f} m past your "
         f"slowest point. Min speed {min_delta:+.1f} kph vs best — releasing "
         f"brake earlier should let the car rotate. {time_loss:.2f} s lost."
     )
@@ -137,12 +152,12 @@ def _late_braking_text(corner_id: int, severity: str, m: dict[str, Any]) -> str:
     time_loss = float(m["corner_time_delta_s"])
     if severity == "minor":
         return (
-            f"In T{corner_id}, braked {delta:.0f} m later than your best lap. "
+            f"In {_corner_label(corner_id)}, braked {delta:.0f} m later than your best lap. "
             f"Try braking a touch earlier to carry more mid-corner speed. "
             f"{time_loss:.2f} s lost."
         )
     return (
-        f"T{corner_id}: Late brake point ({delta:.0f} m past your best). "
+        f"{_corner_label(corner_id)}: Late brake point ({delta:.0f} m past your best). "
         f"Overshooting cost {min_delta:+.1f} kph at the apex — "
         f"{time_loss:.2f} s lost. Brake earlier to avoid scrubbing speed."
     )
@@ -156,12 +171,12 @@ def _over_slow_mid_corner_text(
     time_loss = float(m["corner_time_delta_s"])
     if severity == "minor":
         return (
-            f"In T{corner_id}, mid-corner speed is {min_delta:+.1f} kph "
+            f"In {_corner_label(corner_id)}, mid-corner speed is {min_delta:+.1f} kph "
             f"below your best. Look for a bit more speed through the middle. "
             f"{time_loss:.2f} s lost."
         )
     return (
-        f"T{corner_id}: Min speed {min_delta:+.1f} kph below best AND exit "
+        f"{_corner_label(corner_id)}: Min speed {min_delta:+.1f} kph below best AND exit "
         f"speed {exit_delta:+.1f} kph below best — {time_loss:.2f} s lost. "
         f"You're leaving mid-corner speed on the table without gaining it back."
     )
@@ -173,12 +188,12 @@ def _exit_phase_loss_text(corner_id: int, severity: str, m: dict[str, Any]) -> s
     time_loss = float(m["corner_time_delta_s"])
     if severity == "minor":
         return (
-            f"In T{corner_id}, throttle pickup is {pickup_delay:.0f} m later "
+            f"In {_corner_label(corner_id)}, throttle pickup is {pickup_delay:.0f} m later "
             f"than your best. A slightly earlier commit could help. "
             f"{time_loss:.2f} s lost."
         )
     return (
-        f"T{corner_id}: Throttle pickup {pickup_delay:.0f} m later than best. "
+        f"{_corner_label(corner_id)}: Throttle pickup {pickup_delay:.0f} m later than best. "
         f"Exit speed {exit_delta:+.1f} kph, {time_loss:.2f} s lost. Commit "
         f"earlier on exit."
     )
@@ -193,12 +208,12 @@ def _weak_exit_text(corner_id: int, severity: str, m: dict[str, Any]) -> str:
     base_pct = base_fraction * 100
     if severity == "minor":
         return (
-            f"In T{corner_id}, only {pct:.0f}% of the exit is at full throttle "
+            f"In {_corner_label(corner_id)}, only {pct:.0f}% of the exit is at full throttle "
             f"(vs {base_pct:.0f}% on your best). Try committing to throttle "
             f"more decisively. {time_loss:.2f} s lost."
         )
     return (
-        f"T{corner_id}: Tentative throttle on exit — {pct:.0f}% at full "
+        f"{_corner_label(corner_id)}: Tentative throttle on exit — {pct:.0f}% at full "
         f"throttle vs {base_pct:.0f}% on best lap. Exit speed "
         f"{exit_delta:+.1f} kph, {time_loss:.2f} s lost. Commit to full "
         f"throttle earlier once the car is pointed."
@@ -213,12 +228,12 @@ def _steering_instability_text(
     time_loss = float(m["corner_time_delta_s"])
     if severity == "minor":
         return (
-            f"In T{corner_id}, {count} steering corrections on exit "
+            f"In {_corner_label(corner_id)}, {count} steering corrections on exit "
             f"(vs {base_count} on your best). Try unwinding the wheel "
             f"more smoothly. {time_loss:.2f} s lost."
         )
     return (
-        f"T{corner_id}: {count} steering corrections on exit vs "
+        f"{_corner_label(corner_id)}: {count} steering corrections on exit vs "
         f"{base_count} on best lap — the car isn't settled. "
         f"{time_loss:.2f} s lost. Focus on a smoother line through "
         f"the exit to build confidence on throttle."
@@ -231,17 +246,18 @@ def _abrupt_brake_release_text(
     cand_rate = float(m["release_rate_per_s"])
     base_rate = float(m["baseline_release_rate_per_s"])
     time_loss = float(m["corner_time_delta_s"])
+    ratio = cand_rate / base_rate if base_rate > 0 else 1.0
     if severity == "minor":
         return (
-            f"In T{corner_id}, brake release is abrupt ({cand_rate:.1f}/s vs "
-            f"{base_rate:.1f}/s on best). Try trailing off the pedal more "
-            f"progressively. {time_loss:.2f} s lost."
+            f"In {_corner_label(corner_id)}, you're releasing the brake sharply at turn-in — "
+            f"about {ratio:.1f}× quicker than your best lap. Try trailing off the "
+            f"pedal more gradually. {time_loss:.2f} s lost."
         )
     return (
-        f"T{corner_id}: Abrupt brake release ({cand_rate:.1f}/s vs "
-        f"{base_rate:.1f}/s on best lap) — dropping the pedal suddenly "
-        f"unsettles the car at turn-in. {time_loss:.2f} s lost. Trail off "
-        f"the brake progressively to keep weight on the front axle."
+        f"{_corner_label(corner_id)}: Brake pedal dropped too fast at turn-in ({ratio:.1f}× "
+        f"quicker than your best lap) — this shifts weight off the front suddenly "
+        f"and makes the car hard to place. {time_loss:.2f} s lost. Trail the "
+        f"brake off smoothly to keep the front loaded through entry."
     )
 
 
@@ -253,15 +269,17 @@ def _long_coasting_phase_text(
     time_loss = float(m["corner_time_delta_s"])
     if severity == "minor":
         return (
-            f"In T{corner_id}, coasting {coast_delta:.0f} m more than your "
-            f"best. Try staying on either brake or throttle through the corner. "
+            f"In {_corner_label(corner_id)}, you're off both pedals for {coast_delta:.0f} m "
+            f"more than your best lap. Try bridging the gap — either trail the "
+            f"brake a touch deeper or pick up throttle a little earlier. "
             f"{time_loss:.2f} s lost."
         )
     return (
-        f"T{corner_id}: Long coasting phase — {coast_delta:.0f} m more than "
-        f"best lap with neither brake nor throttle applied. Apex speed "
-        f"{min_delta:+.1f} kph vs best, {time_loss:.2f} s lost. Reduce the "
-        f"neutral phase by trailing the brake deeper or picking up throttle earlier."
+        f"{_corner_label(corner_id)}: Too long off both pedals — {coast_delta:.0f} m more "
+        f"than your best with no brake or throttle applied. The car bleeds "
+        f"speed for free in that gap. Apex {min_delta:+.1f} kph vs best, "
+        f"{time_loss:.2f} s lost. Trail the brake deeper into the corner or "
+        f"pick up throttle earlier on exit."
     )
 
 
@@ -272,7 +290,7 @@ def _long_coasting_phase_text(
 
 def _header(detector_label: str, corner_id: int, lap_number: int, severity: str, confidence: float, time_loss: float) -> str:
     return (
-        f"[Finding] {detector_label} | T{corner_id} | Lap {lap_number}\n"
+        f"[Finding] {detector_label} | {_corner_label(corner_id)} | Lap {lap_number}\n"
         f"Severity: {severity} | Confidence: {confidence:.2f} | Time lost: +{time_loss:.3f}s\n"
     )
 
