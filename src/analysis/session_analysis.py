@@ -168,7 +168,34 @@ def run(
             continue
         for record in records:
             hits.extend(run_all_detectors(record, baseline))
-    finding_set = build_findings(hits, records_by_corner)
+
+    # Also run detectors on compound corner sub-records (e.g. chicane apexes).
+    # Sub-records carry unique IDs (corner 3 → sub-corners 301, 302) so they
+    # get their own per-sub-corner baselines and findings.
+    flat_sub_records: list[CornerRecord] = [
+        sub_rec
+        for records in records_by_corner.values()
+        for record in records
+        for sub_rec in record.sub_corner_records
+    ]
+    if flat_sub_records:
+        sub_records_by_corner = group_records_by_corner(flat_sub_records)
+        sub_baselines = build_per_corner_baselines(sub_records_by_corner)
+        for sub_corner_id, sub_records_list in sub_records_by_corner.items():
+            sub_baseline = sub_baselines.get(sub_corner_id)
+            if sub_baseline is None:
+                continue
+            for sub_record in sub_records_list:
+                hits.extend(run_all_detectors(sub_record, sub_baseline))
+        # Merge so build_findings can resolve alignment quality for sub-corner hits.
+        all_records_by_corner: dict[int, list[CornerRecord]] = {
+            **records_by_corner,
+            **sub_records_by_corner,
+        }
+    else:
+        all_records_by_corner = records_by_corner
+
+    finding_set = build_findings(hits, all_records_by_corner)
 
     # Reconciliation: |sum(corner_delta) + sum(straight_delta) - actual_delta|.
     reconciliation = _compute_reconciliation(

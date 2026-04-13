@@ -20,6 +20,8 @@ from src.analysis.corner_records import (
     StraightRecord,
     ThrottleEvent,
     extract_corner_records,
+    _LapArrays,
+    _estimate_steering_noise,
 )
 from src.core.schemas import ALIGNED_LAP_COLUMNS
 from src.processing.segmentation import (
@@ -730,6 +732,48 @@ class TestTrailBrakeDepthSign(unittest.TestCase):
         self.assertIsNotNone(record.brake)
         assert record.brake is not None
         self.assertLess(record.brake.trail_brake_depth_m, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Adaptive steering noise estimator
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateSteeringNoise(unittest.TestCase):
+    """_estimate_steering_noise should return lower values for quiet steering."""
+
+    def _make_arrays(self, steering: list[float]) -> _LapArrays:
+        n = len(steering)
+        zeros = np.zeros(n)
+        ones = np.ones(n)
+        return _LapArrays(
+            progress_norm=np.linspace(0.0, 1.0, n),
+            progress_m=np.linspace(0.0, 3000.0, n),
+            elapsed_s=np.linspace(0.0, 90.0, n),
+            speed_kph=ones * 100.0,
+            throttle=zeros,
+            brake=zeros,
+            steering=np.array(steering, dtype=float),
+            gear=ones * 3.0,
+            long_accel=zeros,
+            is_coasting=zeros,
+        )
+
+    def test_quiet_lap_gives_lower_noise_than_noisy_lap(self) -> None:
+        quiet = self._make_arrays([0.0, 0.001, 0.002, 0.001, 0.0] * 20)
+        noisy = self._make_arrays([0.0, 0.05, -0.05, 0.05, -0.05] * 20)
+        noise_quiet = _estimate_steering_noise(quiet)
+        noise_noisy = _estimate_steering_noise(noisy)
+        self.assertLess(noise_quiet, noise_noisy)
+
+    def test_floor_at_0_01_for_flat_steering(self) -> None:
+        flat = self._make_arrays([0.0] * 100)
+        self.assertGreaterEqual(_estimate_steering_noise(flat), 0.01)
+
+    def test_empty_arrays_returns_default(self) -> None:
+        from src.analysis.constants import STEERING_NOISE_THRESHOLD
+        empty = self._make_arrays([0.0])  # only 1 sample → diff is empty
+        self.assertEqual(_estimate_steering_noise(empty), STEERING_NOISE_THRESHOLD)
 
 
 if __name__ == "__main__":  # pragma: no cover

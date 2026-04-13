@@ -370,8 +370,9 @@ def _build_corner_record(
         end_p=end_p,
     )
     coasting_distance_m = _coasting_distance(arrays, corner_mask)
+    steering_noise = _estimate_steering_noise(arrays)
     exit_steering_corrections = _exit_steering_corrections(
-        arrays, exit_start_p, end_p
+        arrays, exit_start_p, end_p, noise_threshold=steering_noise
     )
 
     alignment_quality_m, alignment_used_fallback = _alignment_quality(
@@ -846,8 +847,24 @@ def _alignment_quality(
 # ---------------------------------------------------------------------------
 
 
+def _estimate_steering_noise(arrays: _LapArrays) -> float:
+    """Adaptive steering noise floor derived from the lap's own data.
+
+    Uses the 25th percentile of ``|diff(steering)|`` across the whole lap as
+    a proxy for sensor noise and small tracking movements.  This naturally
+    adapts to hardware noise levels and track conditions without requiring
+    per-track configuration.  Floored at 0.01 to handle perfectly smooth
+    sim data where the percentile would otherwise collapse to zero.
+    """
+    dsteering = np.abs(np.diff(arrays.steering))
+    if dsteering.size == 0:
+        return STEERING_NOISE_THRESHOLD
+    return max(float(np.percentile(dsteering, 25)), 0.01)
+
+
 def _exit_steering_corrections(
-    arrays: _LapArrays, exit_start_p: float, end_p: float
+    arrays: _LapArrays, exit_start_p: float, end_p: float,
+    noise_threshold: float = STEERING_NOISE_THRESHOLD,
 ) -> int:
     """Count steering direction changes in the exit phase (noise-filtered)."""
     mask = _progress_window_mask(arrays.progress_norm, exit_start_p, end_p)
@@ -856,7 +873,7 @@ def _exit_steering_corrections(
         return 0
     steering_exit = arrays.steering[idx]
     dsteering = np.diff(steering_exit)
-    dsteering[np.abs(dsteering) < STEERING_NOISE_THRESHOLD] = 0.0
+    dsteering[np.abs(dsteering) < noise_threshold] = 0.0
     nonzero = dsteering[dsteering != 0.0]
     if nonzero.size < 2:
         return 0

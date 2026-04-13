@@ -8,7 +8,7 @@ contents of the serialized ``session_analysis.json``.
 from __future__ import annotations
 
 
-ANALYSIS_VERSION = "2026.04-v5-detector-fixes"
+ANALYSIS_VERSION = "2026.04-v6-signal-activation"
 
 # --- Event detection --------------------------------------------------------
 # Meters of approach ahead of the corner that the brake-initiation search
@@ -37,7 +37,8 @@ TRAIL_BRAKE_CLEAR_THRESHOLD = 0.02
 THROTTLE_PICKUP_THRESHOLD = 0.10
 
 # Threshold for considering throttle "full".
-FULL_THROTTLE_THRESHOLD = 0.95
+# Lowered from 0.95 to include drivers holding 0.90–0.94 throttle.
+FULL_THROTTLE_THRESHOLD = 0.90
 
 # Throttle-dip detection inside the exit region: throttle must rise to at
 # least DIP_UPPER then fall below DIP_LOWER before the corner ends.
@@ -102,6 +103,24 @@ EARLY_BRAKE_ENTRY_SPEED_GUARD_FRACTION = 0.02
 # other lap appear artificially slow.
 BASELINE_ENTRY_SPEED_ADVANTAGE_KPH = 5.0
 
+# Coasting gate for over_slow: skip the detector if the candidate coasted this
+# many meters more than the baseline — extensive extra coasting explains a slow
+# apex without it being a braking-technique failure.
+COASTING_GATE_DELTA_M = 10.0
+
+# Braking stability gate: skip brake-family detectors when the candidate's
+# decel profile is too spiky (|peak_decel| / |avg_decel| exceeds this).
+# A high ratio indicates a brake tap or unstable pedal pressure, making
+# brake-point comparisons unreliable.
+DECEL_INSTABILITY_RATIO_MAX = 2.5
+
+# Brake/steering overlap boost for entry detectors: the overlap delta must
+# exceed this floor before any pattern_strength augmentation is applied.
+BRAKE_OVERLAP_BOOST_MIN_M = 2.0
+# Maximum additive contribution of the overlap signal to pattern_strength.
+# Capped so overlap alone cannot push a marginal hit over the confidence gate.
+BRAKE_OVERLAP_PATTERN_WEIGHT = 0.20
+
 # Steering instability: minimum correction-count delta vs baseline to fire.
 STEERING_INSTABILITY_CORRECTION_DELTA = 3
 # Absolute floor: need at least this many corrections regardless of baseline.
@@ -127,9 +146,11 @@ ALIGNMENT_QUALITY_GOOD_M = 0.5
 ALIGNMENT_QUALITY_POOR_M = 2.0
 
 # Time-loss floor below which the cost-significance sub-score is 0.0, and
-# ceiling above which it saturates at 1.0.
+# ceiling above which it saturates at 1.0.  Ceiling aligned with
+# SEVERITY_MAJOR_S so a major finding with perfect pattern and alignment
+# scores 1.0 confidence rather than ~0.56 (the old 0.50s ceiling produced).
 COST_SIGNIFICANCE_FLOOR_S = 0.05
-COST_SIGNIFICANCE_CEIL_S = 0.50
+COST_SIGNIFICANCE_CEIL_S = 0.30
 
 
 # --- Severity ---------------------------------------------------------------

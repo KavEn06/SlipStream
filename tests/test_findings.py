@@ -194,6 +194,18 @@ class TestComputeConfidence(unittest.TestCase):
         )
         self.assertGreater(high, low)
 
+    def test_major_finding_saturates_cost_score(self) -> None:
+        """A finding at SEVERITY_MAJOR_S (0.30s) should saturate the cost sub-score
+        so a perfect-pattern, good-alignment finding scores 1.0 confidence.
+        Previously COST_SIGNIFICANCE_CEIL_S = 0.50 meant major findings only
+        scored ~0.56 cost, capping confidence at ~0.56."""
+        c = compute_confidence(
+            pattern_strength=1.0,
+            time_loss_s=SEVERITY_MAJOR_S,
+            alignment_quality_m=0.0,  # perfect alignment
+        )
+        self.assertAlmostEqual(c, 1.0, places=6)
+
 
 # ---------------------------------------------------------------------------
 # build_findings: confidence gate, per-corner cap, session cap

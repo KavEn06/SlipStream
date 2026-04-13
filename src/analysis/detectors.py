@@ -24,6 +24,10 @@ from typing import Any
 from src.analysis.baselines import CornerBaseline
 from src.analysis.constants import (
     ALIGNMENT_QUALITY_POOR_M,
+    BRAKE_OVERLAP_BOOST_MIN_M,
+    BRAKE_OVERLAP_PATTERN_WEIGHT,
+    COASTING_GATE_DELTA_M,
+    DECEL_INSTABILITY_RATIO_MAX,
     EARLY_BRAKE_DELTA_M,
     EARLY_BRAKE_ENTRY_SPEED_GUARD_FRACTION,
     EXIT_PHASE_LOSS_THROTTLE_DELAY_M,
@@ -191,9 +195,21 @@ def detect_early_braking(
     if baseline_decel < MIN_DECEL_VALID_MPS2 or candidate_decel < MIN_DECEL_VALID_MPS2:
         return None
 
+    # False-positive: candidate's brake trace is too spiky (large peak vs avg)
+    # — the initiation point is unreliable for distance comparison.
+    candidate_peak_decel = abs(record.brake.peak_decel_mps2)
+    if candidate_decel > 0 and candidate_peak_decel / candidate_decel > DECEL_INSTABILITY_RATIO_MAX:
+        return None
+
     pattern_strength = _saturate(
         (abs(brake_point_delta_m) - EARLY_BRAKE_DELTA_M) / EARLY_BRAKE_DELTA_M
     )
+
+    # Overlap boost: braking while steering heavily is a marker of corner-entry
+    # instability that strengthens the early-braking case.
+    overlap_delta = record.brake.brake_steering_overlap_m - base.brake.brake_steering_overlap_m
+    overlap_boost = _saturate((overlap_delta - BRAKE_OVERLAP_BOOST_MIN_M) / 8.0) * BRAKE_OVERLAP_PATTERN_WEIGHT
+    pattern_strength = _saturate(pattern_strength + overlap_boost)
 
     metrics = {
         "brake_point_delta_m": brake_point_delta_m,
@@ -201,6 +217,8 @@ def detect_early_braking(
         "baseline_brake_distance_m": base.brake.initiation_distance_m,
         "exit_speed_delta_kph": exit_speed_delta_kph,
         "entry_speed_delta_kph": entry_speed_delta,
+        "brake_steering_overlap_m": record.brake.brake_steering_overlap_m,
+        "baseline_brake_steering_overlap_m": base.brake.brake_steering_overlap_m,
         "corner_time_delta_s": time_loss_s,
     }
     evidence = [
@@ -335,9 +353,21 @@ def detect_late_braking(
     if baseline_decel < MIN_DECEL_VALID_MPS2 or candidate_decel < MIN_DECEL_VALID_MPS2:
         return None
 
+    # False-positive: candidate's brake trace is too spiky — initiation point
+    # is unreliable for distance comparison.
+    candidate_peak_decel = abs(record.brake.peak_decel_mps2)
+    if candidate_decel > 0 and candidate_peak_decel / candidate_decel > DECEL_INSTABILITY_RATIO_MAX:
+        return None
+
     pattern_strength = _saturate(
         (brake_point_delta_m - LATE_BRAKE_DELTA_M) / LATE_BRAKE_DELTA_M
     )
+
+    # Overlap boost: simultaneous braking and steering on a late-brake entry
+    # reinforces that the driver was struggling with corner entry.
+    overlap_delta = record.brake.brake_steering_overlap_m - base.brake.brake_steering_overlap_m
+    overlap_boost = _saturate((overlap_delta - BRAKE_OVERLAP_BOOST_MIN_M) / 8.0) * BRAKE_OVERLAP_PATTERN_WEIGHT
+    pattern_strength = _saturate(pattern_strength + overlap_boost)
 
     metrics = {
         "brake_point_delta_m": brake_point_delta_m,
@@ -346,6 +376,8 @@ def detect_late_braking(
         "min_speed_delta_kph": min_speed_delta,
         "exit_speed_delta_kph": exit_speed_delta,
         "entry_speed_delta_kph": entry_speed_delta,
+        "brake_steering_overlap_m": record.brake.brake_steering_overlap_m,
+        "baseline_brake_steering_overlap_m": base.brake.brake_steering_overlap_m,
         "corner_time_delta_s": time_loss_s,
     }
     evidence = [
@@ -387,6 +419,13 @@ def detect_over_slow_mid_corner(
     if entry_speed_delta < OVER_SLOW_ENTRY_SPEED_GUARD_KPH:
         return None
 
+    # False-positive: candidate coasted significantly more than baseline —
+    # extensive extra coasting explains the slow apex without it being a
+    # technique failure on the braking/steering side.
+    coasting_delta = record.coasting_distance_m - base.coasting_distance_m
+    if coasting_delta > COASTING_GATE_DELTA_M:
+        return None
+
     min_speed_delta = record.apex.min_speed_kph - base.apex.min_speed_kph
     if min_speed_delta > OVER_SLOW_MIN_SPEED_DELTA_KPH:
         return None
@@ -405,6 +444,7 @@ def detect_over_slow_mid_corner(
         "exit_speed_delta_kph": exit_speed_delta,
         "candidate_min_speed_kph": record.apex.min_speed_kph,
         "baseline_min_speed_kph": base.apex.min_speed_kph,
+        "coasting_delta_m": coasting_delta,
         "corner_time_delta_s": time_loss_s,
     }
     evidence = [

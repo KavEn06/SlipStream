@@ -15,6 +15,9 @@ from dataclasses import replace
 
 from src.analysis.baselines import CornerBaseline
 from src.analysis.constants import (
+    BRAKE_OVERLAP_BOOST_MIN_M,
+    COASTING_GATE_DELTA_M,
+    DECEL_INSTABILITY_RATIO_MAX,
     EARLY_BRAKE_ENTRY_SPEED_GUARD_FRACTION,
     LATE_BRAKE_APEX_SPEED_DELTA_KPH,
     LATE_BRAKE_EXIT_SPEED_DELTA_KPH,
@@ -910,6 +913,160 @@ class TestEarlyBrakingRelativeEntryGuard(unittest.TestCase):
         )
         hit = detect_early_braking(cand, _baseline_from(base), 0.3)
         self.assertIsNotNone(hit)
+
+
+# ---------------------------------------------------------------------------
+# Issue 7 — Coasting gate for over_slow
+# ---------------------------------------------------------------------------
+
+
+class TestOverSlowCoastingGate(unittest.TestCase):
+    def _base_with_coasting(self, coasting_m: float) -> CornerRecord:
+        r = _record(lap_number=1)
+        return replace(r, coasting_distance_m=coasting_m)
+
+    def _cand_with_coasting(self, coasting_m: float) -> CornerRecord:
+        # Slow apex to satisfy the min_speed gate, but also high coasting.
+        r = _record(
+            lap_number=2,
+            apex=_phase(min_kph=93.0),  # -7 kph vs base default 100
+            exit_phase=_phase(min_kph=138.0, entry_kph=138.0, exit_kph=178.0),
+        )
+        return replace(r, coasting_distance_m=coasting_m)
+
+    def test_blocked_when_coasting_much_more_than_baseline(self) -> None:
+        base = self._base_with_coasting(5.0)
+        cand = self._cand_with_coasting(5.0 + COASTING_GATE_DELTA_M + 1.0)
+        hit = detect_over_slow_mid_corner(cand, _baseline_from(base), 0.3)
+        self.assertIsNone(hit)
+
+    def test_fires_when_coasting_delta_within_gate(self) -> None:
+        base = self._base_with_coasting(5.0)
+        cand = self._cand_with_coasting(5.0 + COASTING_GATE_DELTA_M - 1.0)
+        hit = detect_over_slow_mid_corner(cand, _baseline_from(base), 0.3)
+        self.assertIsNotNone(hit)
+
+    def test_coasting_delta_in_metrics(self) -> None:
+        base = self._base_with_coasting(3.0)
+        cand = self._cand_with_coasting(6.0)  # delta = 3.0, within gate
+        hit = detect_over_slow_mid_corner(cand, _baseline_from(base), 0.3)
+        self.assertIsNotNone(hit)
+        assert hit is not None
+        self.assertAlmostEqual(hit.metrics_snapshot["coasting_delta_m"], 3.0)
+
+
+# ---------------------------------------------------------------------------
+# Issue 8 — Decel instability gate for braking detectors
+# ---------------------------------------------------------------------------
+
+
+class TestBrakingDecelInstability(unittest.TestCase):
+    """Spiky candidate brake traces should suppress early and late braking hits."""
+
+    def _spiky_brake(self, **kwargs) -> BrakeEvent:
+        """Brake with avg_decel 2.5 m/s² but peak_decel 3× higher = ratio 3.0 > limit."""
+        return _brake(
+            avg_decel=-(MIN_DECEL_VALID_MPS2 + 0.5),  # above floor
+            peak_decel=-(MIN_DECEL_VALID_MPS2 + 0.5) * (DECEL_INSTABILITY_RATIO_MAX + 0.5),
+            **kwargs,
+        )
+
+    def test_early_braking_blocked_when_candidate_spiky(self) -> None:
+        base = _record(lap_number=1)
+        cand = _record(
+            brake=self._spiky_brake(init_dist_m=485.0),  # early brake
+            exit_phase=_phase(min_kph=138.0, entry_kph=138.0, exit_kph=148.0),
+        )
+        hit = detect_early_braking(cand, _baseline_from(base), 0.3)
+        self.assertIsNone(hit)
+
+    def test_late_braking_blocked_when_candidate_spiky(self) -> None:
+        base = _record(lap_number=1)
+        cand = _record(
+            brake=self._spiky_brake(init_dist_m=510.0),  # late brake
+            apex=_phase(min_kph=93.0),
+        )
+        hit = detect_late_braking(cand, _baseline_from(base), 0.3)
+        self.assertIsNone(hit)
+
+    def test_fires_when_decel_ratio_within_limit(self) -> None:
+        """ratio = 2.0 < DECEL_INSTABILITY_RATIO_MAX → should not be gated."""
+        avg = -(MIN_DECEL_VALID_MPS2 + 0.5)
+        peak = avg * 2.0  # ratio = 2.0, within limit
+        base = _record(lap_number=1)
+        cand = _record(
+            brake=_brake(init_dist_m=485.0, avg_decel=avg, peak_decel=peak),
+            exit_phase=_phase(min_kph=138.0, entry_kph=138.0, exit_kph=148.0),
+        )
+        hit = detect_early_braking(cand, _baseline_from(base), 0.3)
+        self.assertIsNotNone(hit)
+
+
+# ---------------------------------------------------------------------------
+# Issue 6 — Brake/steering overlap boost for entry detectors
+# ---------------------------------------------------------------------------
+
+
+class TestBrakeOverlapPatternBoost(unittest.TestCase):
+    """Overlap delta above BRAKE_OVERLAP_BOOST_MIN_M should increase pattern_strength."""
+
+    def _record_with_overlap(self, init_dist_m: float, overlap_m: float) -> CornerRecord:
+        b = _brake(init_dist_m=init_dist_m)
+        b = replace(b, brake_steering_overlap_m=overlap_m)
+        return _record(
+            brake=b,
+            exit_phase=_phase(min_kph=138.0, entry_kph=138.0, exit_kph=148.0),
+        )
+
+    def test_overlap_boost_increases_pattern_strength(self) -> None:
+        base_b = _brake(init_dist_m=500.0)
+        base_b = replace(base_b, brake_steering_overlap_m=1.0)
+        base = _record(lap_number=1, brake=base_b)
+
+        # Use a small brake delta (8 m) so raw pattern_strength ≈ 0.14 and
+        # the overlap boost has room to make a measurable difference.
+        cand_no_overlap = self._record_with_overlap(init_dist_m=492.0, overlap_m=1.0)
+        cand_high_overlap = self._record_with_overlap(
+            init_dist_m=492.0,
+            overlap_m=1.0 + BRAKE_OVERLAP_BOOST_MIN_M + 5.0,  # well above boost floor
+        )
+        hit_no = detect_early_braking(cand_no_overlap, _baseline_from(base), 0.3)
+        hit_hi = detect_early_braking(cand_high_overlap, _baseline_from(base), 0.3)
+        self.assertIsNotNone(hit_no)
+        self.assertIsNotNone(hit_hi)
+        assert hit_no is not None and hit_hi is not None
+        self.assertGreater(hit_hi.pattern_strength, hit_no.pattern_strength)
+
+    def test_no_boost_when_overlap_within_min(self) -> None:
+        """Overlap delta below the floor should not change pattern_strength."""
+        base_b = replace(_brake(init_dist_m=500.0), brake_steering_overlap_m=5.0)
+        base = _record(lap_number=1, brake=base_b)
+
+        # Both candidates have the same small overlap delta (below floor).
+        cand_a = self._record_with_overlap(init_dist_m=485.0, overlap_m=5.5)
+        cand_b = self._record_with_overlap(init_dist_m=485.0, overlap_m=5.5)
+        hit_a = detect_early_braking(cand_a, _baseline_from(base), 0.3)
+        hit_b = detect_early_braking(cand_b, _baseline_from(base), 0.3)
+        self.assertIsNotNone(hit_a)
+        self.assertIsNotNone(hit_b)
+        assert hit_a is not None and hit_b is not None
+        self.assertAlmostEqual(hit_a.pattern_strength, hit_b.pattern_strength)
+
+    def test_overlap_in_metrics_snapshot(self) -> None:
+        base_b = replace(_brake(init_dist_m=500.0), brake_steering_overlap_m=2.0)
+        base = _record(lap_number=1, brake=base_b)
+        cand_b = replace(_brake(init_dist_m=492.0), brake_steering_overlap_m=7.0)
+        cand = _record(
+            brake=cand_b,
+            exit_phase=_phase(min_kph=138.0, entry_kph=138.0, exit_kph=148.0),
+        )
+        hit = detect_early_braking(cand, _baseline_from(base), 0.3)
+        self.assertIsNotNone(hit)
+        assert hit is not None
+        self.assertIn("brake_steering_overlap_m", hit.metrics_snapshot)
+        self.assertIn("baseline_brake_steering_overlap_m", hit.metrics_snapshot)
+        self.assertAlmostEqual(hit.metrics_snapshot["brake_steering_overlap_m"], 7.0)
+        self.assertAlmostEqual(hit.metrics_snapshot["baseline_brake_steering_overlap_m"], 2.0)
 
 
 if __name__ == "__main__":  # pragma: no cover
