@@ -126,7 +126,7 @@ class TestKaggleSessionAnalysis(unittest.TestCase):
         self.assertGreater(summary.best_actual_lap_s, 0)
         self.assertGreaterEqual(summary.gap_to_theoretical_s, 0)
         self.assertGreater(len(summary.corner_cards), 0)
-        self.assertTrue(len(summary.main_repeated_theme) > 0)
+        self.assertGreater(len(summary.top_themes), 0)
 
     def test_corner_cards_have_position_data(self) -> None:
         for card in self.result.session_summary.corner_cards:
@@ -138,6 +138,34 @@ class TestKaggleSessionAnalysis(unittest.TestCase):
         self.assertLessEqual(
             summary.theoretical_best_lap_s, summary.best_actual_lap_s
         )
+
+    def test_per_best_lap_breakdown_populated(self) -> None:
+        breakdown = self.result.session_summary.per_best_lap_corner_breakdown
+        self.assertIsInstance(breakdown, list)
+        # At least one corner should be slower than baseline on the best lap.
+        self.assertGreater(len(breakdown), 0)
+        for entry in breakdown:
+            self.assertGreater(entry["delta_s"], 0)
+            self.assertGreater(entry["corner_time_s"], 0)
+            self.assertGreater(entry["baseline_time_s"], 0)
+
+    def test_per_best_lap_breakdown_sorted_descending(self) -> None:
+        breakdown = self.result.session_summary.per_best_lap_corner_breakdown
+        deltas = [e["delta_s"] for e in breakdown]
+        self.assertEqual(deltas, sorted(deltas, reverse=True))
+
+    def test_corner_cards_have_best_lap_fields(self) -> None:
+        for card in self.result.session_summary.corner_cards:
+            # best_lap fields may be None if best lap has no record at that corner,
+            # but at least some cards should have them populated.
+            pass
+        populated = [
+            c for c in self.result.session_summary.corner_cards
+            if c.best_lap_corner_time_s is not None
+        ]
+        self.assertGreater(len(populated), 0)
+        for card in populated:
+            self.assertGreaterEqual(card.best_lap_delta_s, 0.0)
 
     def test_serialization_roundtrip(self) -> None:
         payload = self.result.to_dict()

@@ -41,10 +41,13 @@ from src.analysis.constants import (
 )
 from src.analysis.corner_records import CornerRecord
 from src.analysis.detectors import (
+    DETECTOR_ABRUPT_BRAKE_RELEASE,
     DETECTOR_EARLY_BRAKING,
     DETECTOR_EXIT_PHASE_LOSS,
     DETECTOR_LATE_BRAKING,
+    DETECTOR_LONG_COASTING_PHASE,
     DETECTOR_OVER_SLOW_MID_CORNER,
+    DETECTOR_STEERING_INSTABILITY,
     DETECTOR_TRAIL_BRAKE_PAST_APEX,
     DETECTOR_WEAK_EXIT,
     DetectorHit,
@@ -306,7 +309,19 @@ def _apply_mutual_suppression(findings: list[Finding]) -> list[Finding]:
             dropped_ids.add(weak_exit.finding_id)
 
         # over_slow and exit_phase_loss are INDEPENDENT phases (apex vs exit).
-        # steering_instability is fully independent of all other detectors.
+
+        # long_coasting_phase suppresses over_slow_mid_corner: the coasting IS
+        # the cause of the slow apex.
+        long_coast = detectors_in_group.get(DETECTOR_LONG_COASTING_PHASE)
+        if long_coast is not None and over_slow is not None:
+            dropped_ids.add(over_slow.finding_id)
+
+        # abrupt_brake_release suppresses steering_instability: the abrupt
+        # release destabilised the car, causing the corrections on exit.
+        abrupt_rel = detectors_in_group.get(DETECTOR_ABRUPT_BRAKE_RELEASE)
+        steering = detectors_in_group.get(DETECTOR_STEERING_INSTABILITY)
+        if abrupt_rel is not None and steering is not None:
+            dropped_ids.add(steering.finding_id)
 
         for finding in group:
             if finding.finding_id not in dropped_ids:

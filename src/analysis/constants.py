@@ -8,7 +8,7 @@ contents of the serialized ``session_analysis.json``.
 from __future__ import annotations
 
 
-ANALYSIS_VERSION = "2026.04-v7-session-summary"
+ANALYSIS_VERSION = "2026.04-v8-best-lap-breakdown"
 
 # --- Event detection --------------------------------------------------------
 # Meters of approach ahead of the corner that the brake-initiation search
@@ -130,6 +130,14 @@ STEERING_INSTABILITY_BASELINE_CEILING = 8
 # Ignore steering changes smaller than this (sensor noise filter).
 STEERING_NOISE_THRESHOLD = 0.02
 
+# Abrupt brake release: candidate's release_rate_per_s must exceed this
+# absolute floor AND this ratio vs baseline to fire.
+ABRUPT_RELEASE_RATE_MIN = 8.0
+ABRUPT_RELEASE_RATE_RATIO = 1.8
+
+# Long coasting phase: candidate coasted this many more metres than baseline.
+LONG_COASTING_DELTA_M = 15.0
+
 # Universal time-loss gate: nothing fires unless the candidate is at least
 # this much slower than the baseline through the corner.
 TIME_LOSS_GATE_S = 0.05
@@ -166,6 +174,10 @@ FINDINGS_SESSION_TOP_CAP = 5
 # Maximum number of corner cards in the session summary. Cards are ordered by
 # time left (descending) — only the most impactful corners get cards.
 CORNER_CARDS_SESSION_CAP = 10
+
+# Minimum accumulated time loss (avg × laps_affected) for a corner card to be
+# emitted. Suppresses unreliable single-lap near-misses from taking a card slot.
+CORNER_CARD_MIN_ACCUMULATED_LOSS_S = 0.10
 
 
 # --- Reconciliation invariant -----------------------------------------------

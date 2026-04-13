@@ -23,6 +23,8 @@ from typing import Any
 
 from src.analysis.baselines import CornerBaseline
 from src.analysis.constants import (
+    ABRUPT_RELEASE_RATE_MIN,
+    ABRUPT_RELEASE_RATE_RATIO,
     ALIGNMENT_QUALITY_POOR_M,
     BRAKE_OVERLAP_BOOST_MIN_M,
     BRAKE_OVERLAP_PATTERN_WEIGHT,
@@ -34,6 +36,7 @@ from src.analysis.constants import (
     LATE_BRAKE_APEX_SPEED_DELTA_KPH,
     LATE_BRAKE_DELTA_M,
     LATE_BRAKE_EXIT_SPEED_DELTA_KPH,
+    LONG_COASTING_DELTA_M,
     MIN_DECEL_VALID_MPS2,
     OVER_SLOW_ENTRY_SPEED_GUARD_KPH,
     OVER_SLOW_EXIT_SPEED_DELTA_KPH,
@@ -56,6 +59,8 @@ DETECTOR_OVER_SLOW_MID_CORNER = "over_slow_mid_corner"
 DETECTOR_EXIT_PHASE_LOSS = "exit_phase_loss"
 DETECTOR_WEAK_EXIT = "weak_exit"
 DETECTOR_STEERING_INSTABILITY = "steering_instability"
+DETECTOR_ABRUPT_BRAKE_RELEASE = "abrupt_brake_release"
+DETECTOR_LONG_COASTING_PHASE = "long_coasting_phase"
 
 
 @dataclass(frozen=True)
@@ -149,6 +154,8 @@ def run_all_detectors(
         detect_exit_phase_loss,
         detect_weak_exit,
         detect_steering_instability,
+        detect_abrupt_brake_release,
+        detect_long_coasting_phase,
     ):
         hit = detector_fn(record, baseline, time_loss_s)
         if hit is not None:
@@ -653,6 +660,110 @@ def detect_steering_instability(
     ]
     return DetectorHit(
         detector=DETECTOR_STEERING_INSTABILITY,
+        corner_id=record.corner_id,
+        lap_number=record.lap_number,
+        time_loss_s=time_loss_s,
+        pattern_strength=pattern_strength,
+        metrics_snapshot=metrics,
+        evidence_refs=evidence,
+    )
+
+
+# ---------------------------------------------------------------------------
+# H.8 — Abrupt brake release
+# ---------------------------------------------------------------------------
+
+
+def detect_abrupt_brake_release(
+    record: CornerRecord, baseline: CornerBaseline, time_loss_s: float
+) -> DetectorHit | None:
+    base = baseline.reference_record
+    if record.brake is None or base.brake is None:
+        return None
+
+    cand_rate = record.brake.release_rate_per_s
+    base_rate = base.brake.release_rate_per_s
+
+    # Absolute floor: the release must be genuinely abrupt.
+    if cand_rate < ABRUPT_RELEASE_RATE_MIN:
+        return None
+
+    # Relative gate: candidate must be significantly more abrupt than baseline.
+    if base_rate > 0 and cand_rate < base_rate * ABRUPT_RELEASE_RATE_RATIO:
+        return None
+
+    pattern_strength = _saturate(
+        (cand_rate - ABRUPT_RELEASE_RATE_MIN) / ABRUPT_RELEASE_RATE_MIN
+    )
+
+    metrics = {
+        "release_rate_per_s": cand_rate,
+        "baseline_release_rate_per_s": base_rate,
+        "release_rate_ratio": cand_rate / max(base_rate, 0.01),
+        "min_speed_delta_kph": record.apex.min_speed_kph - base.apex.min_speed_kph,
+        "exit_speed_delta_kph": record.exit.exit_speed_kph - base.exit.exit_speed_kph,
+        "corner_time_delta_s": time_loss_s,
+    }
+    release_p = float(record.brake.release_progress_norm)
+    evidence = [
+        {
+            "column": "Brake",
+            "progress_start": max(release_p - 0.03, float(record.brake.initiation_progress_norm)),
+            "progress_end": min(release_p + 0.02, float(record.corner_end_progress_norm)),
+        },
+    ]
+    return DetectorHit(
+        detector=DETECTOR_ABRUPT_BRAKE_RELEASE,
+        corner_id=record.corner_id,
+        lap_number=record.lap_number,
+        time_loss_s=time_loss_s,
+        pattern_strength=pattern_strength,
+        metrics_snapshot=metrics,
+        evidence_refs=evidence,
+    )
+
+
+# ---------------------------------------------------------------------------
+# H.9 — Long coasting phase
+# ---------------------------------------------------------------------------
+
+
+def detect_long_coasting_phase(
+    record: CornerRecord, baseline: CornerBaseline, time_loss_s: float
+) -> DetectorHit | None:
+    base = baseline.reference_record
+
+    coasting_delta = record.coasting_distance_m - base.coasting_distance_m
+    if coasting_delta < LONG_COASTING_DELTA_M:
+        return None
+
+    pattern_strength = _saturate(
+        (coasting_delta - LONG_COASTING_DELTA_M) / LONG_COASTING_DELTA_M
+    )
+
+    metrics = {
+        "coasting_distance_m": record.coasting_distance_m,
+        "baseline_coasting_distance_m": base.coasting_distance_m,
+        "coasting_delta_m": coasting_delta,
+        "min_speed_delta_kph": record.apex.min_speed_kph - base.apex.min_speed_kph,
+        "exit_speed_delta_kph": record.exit.exit_speed_kph - base.exit.exit_speed_kph,
+        "corner_time_delta_s": time_loss_s,
+    }
+    apex_p = float(record.apex.min_speed_progress_norm)
+    evidence = [
+        {
+            "column": "Throttle",
+            "progress_start": max(apex_p - 0.04, 0.0),
+            "progress_end": min(apex_p + 0.06, float(record.corner_end_progress_norm)),
+        },
+        {
+            "column": "Brake",
+            "progress_start": max(apex_p - 0.04, 0.0),
+            "progress_end": min(apex_p + 0.06, float(record.corner_end_progress_norm)),
+        },
+    ]
+    return DetectorHit(
+        detector=DETECTOR_LONG_COASTING_PHASE,
         corner_id=record.corner_id,
         lap_number=record.lap_number,
         time_loss_s=time_loss_s,

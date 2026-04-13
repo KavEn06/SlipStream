@@ -15,9 +15,11 @@ from __future__ import annotations
 from typing import Any
 
 from src.analysis.detectors import (
+    DETECTOR_ABRUPT_BRAKE_RELEASE,
     DETECTOR_EARLY_BRAKING,
     DETECTOR_EXIT_PHASE_LOSS,
     DETECTOR_LATE_BRAKING,
+    DETECTOR_LONG_COASTING_PHASE,
     DETECTOR_OVER_SLOW_MID_CORNER,
     DETECTOR_STEERING_INSTABILITY,
     DETECTOR_TRAIL_BRAKE_PAST_APEX,
@@ -46,6 +48,10 @@ def render_finding_text(
         return _weak_exit_text(corner_id, severity, metrics)
     if detector == DETECTOR_STEERING_INSTABILITY:
         return _steering_instability_text(corner_id, severity, metrics)
+    if detector == DETECTOR_ABRUPT_BRAKE_RELEASE:
+        return _abrupt_brake_release_text(corner_id, severity, metrics)
+    if detector == DETECTOR_LONG_COASTING_PHASE:
+        return _long_coasting_phase_text(corner_id, severity, metrics)
     raise ValueError(f"Unknown detector: {detector}")
 
 
@@ -77,6 +83,10 @@ def render_ai_context(
         return _weak_exit_ai(corner_id, lap_number, severity, confidence, metrics)
     if detector == DETECTOR_STEERING_INSTABILITY:
         return _steering_instability_ai(corner_id, lap_number, severity, confidence, metrics)
+    if detector == DETECTOR_ABRUPT_BRAKE_RELEASE:
+        return _abrupt_brake_release_ai(corner_id, lap_number, severity, confidence, metrics)
+    if detector == DETECTOR_LONG_COASTING_PHASE:
+        return _long_coasting_phase_ai(corner_id, lap_number, severity, confidence, metrics)
     raise ValueError(f"Unknown detector: {detector}")
 
 
@@ -215,6 +225,46 @@ def _steering_instability_text(
     )
 
 
+def _abrupt_brake_release_text(
+    corner_id: int, severity: str, m: dict[str, Any]
+) -> str:
+    cand_rate = float(m["release_rate_per_s"])
+    base_rate = float(m["baseline_release_rate_per_s"])
+    time_loss = float(m["corner_time_delta_s"])
+    if severity == "minor":
+        return (
+            f"In T{corner_id}, brake release is abrupt ({cand_rate:.1f}/s vs "
+            f"{base_rate:.1f}/s on best). Try trailing off the pedal more "
+            f"progressively. {time_loss:.2f} s lost."
+        )
+    return (
+        f"T{corner_id}: Abrupt brake release ({cand_rate:.1f}/s vs "
+        f"{base_rate:.1f}/s on best lap) — dropping the pedal suddenly "
+        f"unsettles the car at turn-in. {time_loss:.2f} s lost. Trail off "
+        f"the brake progressively to keep weight on the front axle."
+    )
+
+
+def _long_coasting_phase_text(
+    corner_id: int, severity: str, m: dict[str, Any]
+) -> str:
+    coast_delta = float(m["coasting_delta_m"])
+    min_delta = float(m["min_speed_delta_kph"])
+    time_loss = float(m["corner_time_delta_s"])
+    if severity == "minor":
+        return (
+            f"In T{corner_id}, coasting {coast_delta:.0f} m more than your "
+            f"best. Try staying on either brake or throttle through the corner. "
+            f"{time_loss:.2f} s lost."
+        )
+    return (
+        f"T{corner_id}: Long coasting phase — {coast_delta:.0f} m more than "
+        f"best lap with neither brake nor throttle applied. Apex speed "
+        f"{min_delta:+.1f} kph vs best, {time_loss:.2f} s lost. Reduce the "
+        f"neutral phase by trailing the brake deeper or picking up throttle earlier."
+    )
+
+
 # ---------------------------------------------------------------------------
 # AI context — rich, fully-labelled metric strings
 # ---------------------------------------------------------------------------
@@ -344,4 +394,38 @@ def _steering_instability_ai(
     return (
         _header("Steering instability on exit", corner_id, lap_number, severity, confidence, time_loss)
         + f"Exit steering corrections: this lap {count} | best lap {base_count} | delta +{delta}\n"
+    )
+
+
+def _abrupt_brake_release_ai(
+    corner_id: int, lap_number: int, severity: str, confidence: float, m: dict[str, Any]
+) -> str:
+    cand_rate = float(m["release_rate_per_s"])
+    base_rate = float(m["baseline_release_rate_per_s"])
+    ratio = float(m["release_rate_ratio"])
+    min_delta = float(m["min_speed_delta_kph"])
+    exit_delta = float(m["exit_speed_delta_kph"])
+    time_loss = float(m["corner_time_delta_s"])
+    return (
+        _header("Abrupt brake release", corner_id, lap_number, severity, confidence, time_loss)
+        + f"Release rate: this lap {cand_rate:.1f}/s | best lap {base_rate:.1f}/s | ratio {ratio:.1f}×\n"
+        f"Apex speed delta: {min_delta:+.1f} kph (this lap vs best lap)\n"
+        f"Exit speed delta: {exit_delta:+.1f} kph (this lap vs best lap)\n"
+    )
+
+
+def _long_coasting_phase_ai(
+    corner_id: int, lap_number: int, severity: str, confidence: float, m: dict[str, Any]
+) -> str:
+    cand_coast = float(m["coasting_distance_m"])
+    base_coast = float(m["baseline_coasting_distance_m"])
+    coast_delta = float(m["coasting_delta_m"])
+    min_delta = float(m["min_speed_delta_kph"])
+    exit_delta = float(m["exit_speed_delta_kph"])
+    time_loss = float(m["corner_time_delta_s"])
+    return (
+        _header("Long coasting phase", corner_id, lap_number, severity, confidence, time_loss)
+        + f"Coasting distance: this lap {cand_coast:.1f} m | best lap {base_coast:.1f} m | delta {coast_delta:+.1f} m\n"
+        f"Apex speed delta: {min_delta:+.1f} kph (this lap vs best lap)\n"
+        f"Exit speed delta: {exit_delta:+.1f} kph (this lap vs best lap)\n"
     )
