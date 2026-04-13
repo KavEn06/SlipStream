@@ -105,11 +105,17 @@ class TestKaggleSessionAnalysis(unittest.TestCase):
             self.assertNotEqual(lap_number, entry["reference_lap_number"])
 
     def test_every_finding_points_to_a_real_record(self) -> None:
+        # Top-level records.
         record_keys = {
             (corner_id, record.lap_number)
             for corner_id, records in self.result.per_corner_records.items()
             for record in records
         }
+        # Sub-corner records (compound corners, e.g. corner 8 → sub-corners 801, 802).
+        for records in self.result.per_corner_records.values():
+            for record in records:
+                for sub_rec in record.sub_corner_records:
+                    record_keys.add((sub_rec.corner_id, sub_rec.lap_number))
         for finding in self.result.findings_all:
             self.assertIn((finding.corner_id, finding.lap_number), record_keys)
 

@@ -49,7 +49,7 @@ from src.analysis.detectors import (
     DETECTOR_WEAK_EXIT,
     DetectorHit,
 )
-from src.analysis.templates import render_finding_text
+from src.analysis.templates import render_ai_context, render_finding_text
 
 
 SEVERITY_MINOR = "minor"
@@ -67,6 +67,7 @@ class Finding:
     confidence: float
     time_loss_s: float
     templated_text: str
+    ai_context: str
     evidence_refs: list[dict[str, Any]]
     metrics_snapshot: dict[str, Any]
 
@@ -185,6 +186,14 @@ def build_findings(
             severity=severity,
             metrics=hit.metrics_snapshot,
         )
+        ai_ctx = render_ai_context(
+            detector=hit.detector,
+            corner_id=hit.corner_id,
+            lap_number=hit.lap_number,
+            severity=severity,
+            confidence=confidence,
+            metrics=hit.metrics_snapshot,
+        )
         candidates.append(
             Finding(
                 finding_id=_finding_id(hit),
@@ -195,6 +204,7 @@ def build_findings(
                 confidence=confidence,
                 time_loss_s=hit.time_loss_s,
                 templated_text=text,
+                ai_context=ai_ctx,
                 evidence_refs=list(hit.evidence_refs),
                 metrics_snapshot=dict(hit.metrics_snapshot),
             )
