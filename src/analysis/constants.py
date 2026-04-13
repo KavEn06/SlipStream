@@ -8,7 +8,7 @@ contents of the serialized ``session_analysis.json``.
 from __future__ import annotations
 
 
-ANALYSIS_VERSION = "2026.04-v6-signal-activation"
+ANALYSIS_VERSION = "2026.04-v7-session-summary"
 
 # --- Event detection --------------------------------------------------------
 # Meters of approach ahead of the corner that the brake-initiation search
@@ -162,6 +162,10 @@ SEVERITY_MAJOR_S = 0.30
 # --- Output caps ------------------------------------------------------------
 FINDINGS_PER_CORNER_CAP = 2
 FINDINGS_SESSION_TOP_CAP = 5
+
+# Maximum number of corner cards in the session summary. Cards are ordered by
+# time left (descending) — only the most impactful corners get cards.
+CORNER_CARDS_SESSION_CAP = 10
 
 
 # --- Reconciliation invariant -----------------------------------------------

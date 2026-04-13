@@ -32,6 +32,7 @@ from src.analysis.corner_records import (
 )
 from src.analysis.detectors import DetectorHit, run_all_detectors
 from src.analysis.findings import Finding, FindingSet, build_findings
+from src.analysis.session_summary import SessionSummary, build_session_summary
 from src.core.config import PROCESSED_DATA_ROOT
 from src.processing.alignment import resample_aligned_lap
 from src.processing.segmentation import (
@@ -63,6 +64,7 @@ class SessionAnalysis:
     lap_time_delta_reconciliation: dict[int, dict[str, float]]
     corner_definitions: list[CornerDefinition] = field(default_factory=list)
     reference_length_m: float = 0.0
+    session_summary: SessionSummary | None = None
     quality_report: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -88,6 +90,9 @@ class SessionAnalysis:
                 str(lap): dict(entry)
                 for lap, entry in self.lap_time_delta_reconciliation.items()
             },
+            "session_summary": (
+                self.session_summary.to_dict() if self.session_summary else None
+            ),
             "quality_report": dict(self.quality_report),
         }
 
@@ -214,6 +219,17 @@ def run(
         for record in records
     ]
 
+    # Session coaching summary.
+    session_summary = build_session_summary(
+        per_corner_records=records_by_corner,
+        per_corner_baselines=baselines,
+        straight_records=all_straights,
+        findings_all=finding_set.findings_all,
+        corner_definitions=segmentation.corners,
+        per_lap_lap_times=per_lap_lap_time,
+        reference_length_m=segmentation.reference_length_m,
+    )
+
     session_analysis = SessionAnalysis(
         analysis_version=ANALYSIS_VERSION,
         session_id=session_id,
@@ -227,6 +243,7 @@ def run(
         findings_top=finding_set.findings_top,
         findings_all=finding_set.findings_all,
         lap_time_delta_reconciliation=reconciliation,
+        session_summary=session_summary,
         quality_report=_quality_report(
             usable_lap_numbers=usable_lap_numbers,
             per_lap_records=per_lap_records,

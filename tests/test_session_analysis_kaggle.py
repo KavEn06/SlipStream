@@ -119,6 +119,26 @@ class TestKaggleSessionAnalysis(unittest.TestCase):
         for finding in self.result.findings_all:
             self.assertIn((finding.corner_id, finding.lap_number), record_keys)
 
+    def test_session_summary_populated(self) -> None:
+        summary = self.result.session_summary
+        self.assertIsNotNone(summary)
+        self.assertGreater(summary.theoretical_best_lap_s, 0)
+        self.assertGreater(summary.best_actual_lap_s, 0)
+        self.assertGreaterEqual(summary.gap_to_theoretical_s, 0)
+        self.assertGreater(len(summary.corner_cards), 0)
+        self.assertTrue(len(summary.main_repeated_theme) > 0)
+
+    def test_corner_cards_have_position_data(self) -> None:
+        for card in self.result.session_summary.corner_cards:
+            self.assertGreater(card.apex_m, 0)
+            self.assertGreater(card.corner_start_m, 0)
+
+    def test_theoretical_best_leq_best_actual(self) -> None:
+        summary = self.result.session_summary
+        self.assertLessEqual(
+            summary.theoretical_best_lap_s, summary.best_actual_lap_s
+        )
+
     def test_serialization_roundtrip(self) -> None:
         payload = self.result.to_dict()
         for key in (
@@ -132,6 +152,7 @@ class TestKaggleSessionAnalysis(unittest.TestCase):
             "findings_top",
             "findings_all",
             "lap_time_delta_reconciliation",
+            "session_summary",
             "quality_report",
         ):
             self.assertIn(key, payload)
