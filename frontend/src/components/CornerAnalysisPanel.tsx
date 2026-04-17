@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { AnalysisFinding, CornerDefinition, SessionAnalysis } from "../types";
 import { CornerDetailView } from "./CornerDetailView";
@@ -128,11 +128,13 @@ function DetailHeader({ finding, cornerDef }: DetailHeaderProps) {
 
 export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
   const [analysis, setAnalysis] = useState<SessionAnalysis | null>(null);
+  const [allLapNumbers, setAllLapNumbers] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
+  const [findingsListOpen, setFindingsListOpen] = useState(true);
 
   const load = useCallback(async () => {
     if (!enabled) return;
@@ -159,6 +161,37 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Pull every processed lap so the track envelope reflects the full field,
+  // not just the candidate vs reference pair currently on screen.
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    api
+      .getSession(sessionId)
+      .then((detail) => {
+        if (cancelled) return;
+        setAllLapNumbers(
+          detail.laps
+            .filter((lap) => lap.has_processed)
+            .map((lap) => lap.lap_number),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setAllLapNumbers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, sessionId]);
+
+  const additionalLapNumbers = useMemo(
+    () =>
+      analysis
+        ? allLapNumbers.filter((n) => n !== analysis.reference_lap_number)
+        : allLapNumbers,
+    [allLapNumbers, analysis],
+  );
 
   // Auto-select first finding when analysis loads
   useEffect(() => {
@@ -250,36 +283,62 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
           threshold.
         </p>
       ) : (
-        <div className="mt-5 flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,300px)_1fr] lg:gap-5 lg:h-[calc(100vh-250px)] lg:overflow-hidden lg:items-stretch">
-          {/* LEFT — full-height scrollable findings list */}
-          <div className="flex flex-col gap-2 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-2">
-            {findings.map((finding) => (
-              <CompactFindingCard
-                key={finding.finding_id}
-                finding={finding}
-                selected={finding.finding_id === selectedFindingId}
-                onClick={() => setSelectedFindingId(finding.finding_id)}
-              />
-            ))}
+        <div className={`mt-5 flex flex-col gap-4 lg:gap-5 lg:items-start ${findingsListOpen ? "lg:grid lg:grid-cols-[minmax(0,300px)_1fr]" : "lg:block"}`}>
+          {/* LEFT — sticky scrollable findings list */}
+          {findingsListOpen && (
+            <div className="flex flex-col gap-2 lg:sticky lg:top-4 lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto lg:pr-2">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <p className="text-[10px] uppercase tracking-[0.14em] text-text-muted">Findings</p>
+                <button
+                  type="button"
+                  onClick={() => setFindingsListOpen(false)}
+                  aria-label="Hide findings list"
+                  title="Hide findings list"
+                  className="motion-safe-color shrink-0 rounded-full border border-border/70 bg-surface-2/84 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-text-secondary hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer"
+                >
+                  Hide
+                </button>
+              </div>
+              {findings.map((finding) => (
+                <CompactFindingCard
+                  key={finding.finding_id}
+                  finding={finding}
+                  selected={finding.finding_id === selectedFindingId}
+                  onClick={() => setSelectedFindingId(finding.finding_id)}
+                />
+              ))}
 
-            {analysis.findings_all.length > analysis.findings_top.length && (
-              <button
-                type="button"
-                onClick={() => {
-                  setShowAll((prev) => !prev);
-                  setSelectedFindingId(null);
-                }}
-                className="motion-safe-color mt-1 mb-2 inline-flex h-9 items-center rounded-full border border-border/70 bg-surface-2/84 px-4 text-xs font-medium uppercase tracking-[0.14em] text-text-secondary hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer self-start shrink-0"
-              >
-                {showAll
-                  ? `Show top ${analysis.findings_top.length}`
-                  : `Show all ${analysis.findings_all.length}`}
-              </button>
+              {analysis.findings_all.length > analysis.findings_top.length && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAll((prev) => !prev);
+                    setSelectedFindingId(null);
+                  }}
+                  className="motion-safe-color mt-1 mb-2 inline-flex h-9 items-center rounded-full border border-border/70 bg-surface-2/84 px-4 text-xs font-medium uppercase tracking-[0.14em] text-text-secondary hover:border-border-strong hover:bg-surface-3 hover:text-text-primary cursor-pointer self-start shrink-0"
+                >
+                  {showAll
+                    ? `Show top ${analysis.findings_top.length}`
+                    : `Show all ${analysis.findings_all.length}`}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* RIGHT — flows with main page scroll */}
+          <div>
+            {!findingsListOpen && (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={() => setFindingsListOpen(true)}
+                  aria-label="Show findings list"
+                  className="motion-safe-color inline-flex h-8 items-center rounded-full border border-accent/24 bg-accent/12 px-3 text-[10px] font-medium uppercase tracking-[0.14em] text-accent hover:bg-accent/18 cursor-pointer"
+                >
+                  Findings
+                </button>
+              </div>
             )}
-          </div>
-
-          {/* RIGHT — full-height scrollable detail panel */}
-          <div className="lg:h-full lg:min-h-0 lg:overflow-y-auto">
             {selectedFinding && selectedCornerDef && analysis.reference_length_m ? (
               <div className="rounded-2xl border border-border/60 bg-surface-2/50 p-4">
                 <DetailHeader finding={selectedFinding} cornerDef={selectedCornerDef} />
@@ -289,6 +348,7 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
                   sessionId={sessionId}
                   baselineLapNumber={analysis.reference_lap_number}
                   referenceLengthM={analysis.reference_length_m}
+                  additionalLapNumbers={additionalLapNumbers}
                 />
               </div>
             ) : (

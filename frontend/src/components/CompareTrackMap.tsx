@@ -6,7 +6,7 @@ const SVG_PADDING = 24;
 const MARKER_RADIUS = 5;
 const START_MARKER_RADIUS = 3.5;
 const MIN_ZOOM = 0.5;
-const MAX_ZOOM = 8;
+const MAX_ZOOM = 16;
 const ZOOM_STEP = 1.15;
 const PAN_NUDGE_STEP = 32;
 const PAN_HOLD_DELAY_MS = 220;
@@ -16,20 +16,22 @@ const MIN_PITCH = -1.35;
 const MAX_PITCH = 1.35;
 const THREE_D_OUTLINE_OUTER_WIDTH = 6.8;
 const THREE_D_OUTLINE_INNER_WIDTH = 4.4;
-const TRACK_ENVELOPE_OUTER_WIDTH = 18;
-const TRACK_ENVELOPE_INNER_WIDTH = 13.5;
-const REFERENCE_LINE_UNDERLAY_WIDTH = 3.0;
-const OTHER_LINE_UNDERLAY_WIDTH = 3.0;
-const REFERENCE_LINE_WIDTH = 1.1;
-const OTHER_LINE_WIDTH = 1.05;
+// Track envelope is sized dynamically from the lateral spread between laps
+// so every racing line we plot stays inside the white edge rails.
+const MIN_TRACK_OUTER_WIDTH = 9;
+const MAX_TRACK_OUTER_WIDTH = 34;
+const TRACK_EDGE_THICKNESS = 1.6; // visible white rail thickness on each side
+const TRACK_EDGE_PADDING = 4; // breathing room between racing line and rail
+const REFERENCE_LINE_WIDTH = 1.8;
+const OTHER_LINE_WIDTH = 3.0;
+const REFERENCE_LINE_DASH = "10 8";
 const MAP_HOVER_SNAP_PX = 28;
-const FOCUS_PADDING_PX = 42;
-const MIN_FOCUS_SPAN_PX = 36;
+const FOCUS_PADDING_PX = 4;
+const MIN_FOCUS_SPAN_PX = 24;
 
-const CORNER_ENTRY_COLOR = "rgba(59,130,246,0.55)";
-const CORNER_CENTER_COLOR = "rgba(249,115,22,0.60)";
-const CORNER_EXIT_COLOR = "rgba(34,197,94,0.55)";
-const CORNER_STROKE_WIDTH = 4.5;
+const CORNER_ENTRY_COLOR = "rgba(59,130,246,0.70)";
+const CORNER_CENTER_COLOR = "rgba(249,115,22,0.75)";
+const CORNER_EXIT_COLOR = "rgba(34,197,94,0.70)";
 const CORNER_LABEL_FONT_SIZE = 9;
 
 type ViewMode = "2d" | "3d";
@@ -41,6 +43,9 @@ export interface CompareTrackSeries {
   color: string;
   isReference: boolean;
   records: Record<string, number | string>[];
+  // Invisible series still contribute to track-envelope sizing and viewport
+  // bounds, but are not drawn as a racing line, marker, or legend entry.
+  invisible?: boolean;
 }
 
 interface Props {
@@ -73,6 +78,8 @@ interface ProjectedTrackPoint {
   elapsedTimeS: number | null;
 }
 
+const CORNER_LABEL_OFFSET = 20;
+
 interface CornerSegment {
   cornerIndex: number;
   region: "entry" | "center" | "exit";
@@ -80,6 +87,8 @@ interface CornerSegment {
   color: string;
   labelX: number;
   labelY: number;
+  labelOffsetX: number;
+  labelOffsetY: number;
   cornerId: number;
   direction: string;
 }
@@ -270,6 +279,13 @@ function buildCornerSegments(
       }
 
       const middlePoint = points[Math.floor(points.length / 2)];
+      const firstPt = points[0];
+      const lastPt = points[points.length - 1];
+      const dx = lastPt.sx - firstPt.sx;
+      const dy = lastPt.sy - firstPt.sy;
+      const segLen = Math.sqrt(dx * dx + dy * dy) || 1;
+      const labelOffsetX = (dy / segLen) * CORNER_LABEL_OFFSET;
+      const labelOffsetY = (-dx / segLen) * CORNER_LABEL_OFFSET;
       segments.push({
         cornerIndex,
         region: range.region,
@@ -277,6 +293,8 @@ function buildCornerSegments(
         color: range.color,
         labelX: middlePoint.sx,
         labelY: middlePoint.sy,
+        labelOffsetX,
+        labelOffsetY,
         cornerId: corner.corner_id,
         direction: corner.direction,
       });
@@ -525,6 +543,51 @@ export function CompareTrackMap({
     };
   }, [rotation.pitch, rotation.yaw, series, viewMode]);
 
+  // Track envelope is sized to the maximum lateral deviation between any
+  // racing line and the reference, so every plotted lap sits comfortably
+  // between the white edge rails. Falls back to a sensible minimum when only
+  // one lap is shown or no progress data is available.
+  const trackWidths = useMemo(() => {
+    const fallback = {
+      outer: MIN_TRACK_OUTER_WIDTH,
+      inner: Math.max(2, MIN_TRACK_OUTER_WIDTH - 2 * TRACK_EDGE_THICKNESS),
+    };
+    if (!preparedSeries) {
+      return fallback;
+    }
+    const referencePreparedLap = preparedSeries.laps.find((lap) => lap.isReference);
+    if (!referencePreparedLap) {
+      return fallback;
+    }
+
+    let maxLateralPx = 0;
+    for (const lap of preparedSeries.laps) {
+      if (lap.isReference) continue;
+      for (const point of lap.projected) {
+        if (point.progress === null) continue;
+        const referencePoint = interpolateTrackPoint(
+          referencePreparedLap.projected,
+          point.progress,
+          "progress",
+        );
+        if (!referencePoint) continue;
+        const dx = point.sx - referencePoint.sx;
+        const dy = point.sy - referencePoint.sy;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance > maxLateralPx) {
+          maxLateralPx = distance;
+        }
+      }
+    }
+
+    const outer = Math.min(
+      MAX_TRACK_OUTER_WIDTH,
+      Math.max(MIN_TRACK_OUTER_WIDTH, 2 * maxLateralPx + 2 * TRACK_EDGE_PADDING),
+    );
+    const inner = Math.max(2, outer - 2 * TRACK_EDGE_THICKNESS);
+    return { outer, inner };
+  }, [preparedSeries]);
+
   const displayData = useMemo(() => {
     if (!preparedSeries) {
       return null;
@@ -578,6 +641,8 @@ export function CompareTrackMap({
       .map((segment) => ({
         x: segment.labelX,
         y: segment.labelY,
+        offsetX: segment.labelOffsetX,
+        offsetY: segment.labelOffsetY,
         id: segment.cornerId,
       }));
   }, [cornerSegments, showCorners]);
@@ -587,6 +652,7 @@ export function CompareTrackMap({
   const activeMarkers = useMemo(
     () =>
       displayData?.laps
+        .filter((lap) => !lap.invisible)
         .map((lap) => ({
           ...lap,
           marker: interpolateTrackPoint(lap.transformedPoints, activeMarkerValue, activeMarkerKey),
@@ -930,56 +996,7 @@ export function CompareTrackMap({
             </>
           )}
 
-          {showTrackEnvelope && referenceLap && (
-            <>
-              <path
-                d={referenceLap.path}
-                fill="none"
-                stroke="rgba(255,255,255,0.12)"
-                strokeWidth={TRACK_ENVELOPE_OUTER_WIDTH}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                opacity={0.95}
-              />
-              <path
-                d={referenceLap.path}
-                fill="none"
-                stroke="rgba(8,10,16,0.72)"
-                strokeWidth={TRACK_ENVELOPE_INNER_WIDTH}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                opacity={0.92}
-              />
-            </>
-          )}
-
-          {displayData.laps.map((lap) => (
-            <g key={lap.id}>
-              <path
-                d={lap.path}
-                fill="none"
-                stroke={
-                  lap.isReference
-                    ? "rgba(191,219,254,0.45)"
-                    : "rgba(249,115,22,0.34)"
-                }
-                strokeWidth={lap.isReference ? REFERENCE_LINE_UNDERLAY_WIDTH : OTHER_LINE_UNDERLAY_WIDTH}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                opacity={lap.isReference ? 0.78 : 0.78}
-              />
-              <path
-                d={lap.path}
-                fill="none"
-                stroke={lap.color}
-                strokeWidth={lap.isReference ? REFERENCE_LINE_WIDTH : OTHER_LINE_WIDTH}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                opacity={lap.isReference ? 0.96 : 0.88}
-              />
-            </g>
-          ))}
-
+          {/* Corner fills drawn first so track edges render on top of them */}
           {showCorners &&
             cornerSegments.map((segment, index) => (
               <path
@@ -987,35 +1004,97 @@ export function CompareTrackMap({
                 d={segment.path}
                 fill="none"
                 stroke={segment.color}
-                strokeWidth={CORNER_STROKE_WIDTH}
+                strokeWidth={trackWidths.outer}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
             ))}
 
-          {showCorners &&
-            cornerLabels.map((label) => (
-              <g key={`label-${label.id}`}>
-                <circle
-                  cx={label.x}
-                  cy={label.y}
-                  r={10}
-                  fill="var(--app-surface-0)"
-                  opacity={0.85}
+          {showTrackEnvelope && referenceLap && (
+            <>
+              {/* Solid edge lines — width sized to contain every racing line */}
+              <path
+                d={referenceLap.path}
+                fill="none"
+                stroke="rgba(255,255,255,0.55)"
+                strokeWidth={trackWidths.outer}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.95}
+              />
+              {/* Dark track surface — light enough to let corner colours show through */}
+              <path
+                d={referenceLap.path}
+                fill="none"
+                stroke="rgba(8,10,16,0.82)"
+                strokeWidth={trackWidths.inner}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.92}
+              />
+            </>
+          )}
+
+          {displayData.laps
+            .filter((lap) => !lap.invisible)
+            .map((lap) => (
+              <g key={lap.id}>
+                <path
+                  d={lap.path}
+                  fill="none"
+                  stroke={lap.color}
+                  strokeWidth={lap.isReference ? REFERENCE_LINE_WIDTH : OTHER_LINE_WIDTH}
+                  strokeDasharray={lap.isReference ? REFERENCE_LINE_DASH : undefined}
+                  strokeLinecap="butt"
+                  strokeLinejoin="round"
+                  opacity={lap.isReference ? 0.85 : 1}
                 />
-                <text
-                  x={label.x}
-                  y={label.y}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fill="var(--app-text-primary)"
-                  fontSize={CORNER_LABEL_FONT_SIZE}
-                  fontWeight={600}
-                >
-                  {`T${label.id}`}
-                </text>
               </g>
             ))}
+
+          {showCorners &&
+            cornerLabels.map((label) => {
+              const lx = label.x + label.offsetX;
+              const ly = label.y + label.offsetY;
+              return (
+                <g key={`label-${label.id}`}>
+                  <line
+                    x1={label.x}
+                    y1={label.y}
+                    x2={lx}
+                    y2={ly}
+                    stroke="var(--app-text-muted)"
+                    strokeWidth={0.8}
+                    opacity={0.5}
+                  />
+                  <circle
+                    cx={label.x}
+                    cy={label.y}
+                    r={2}
+                    fill="var(--app-text-muted)"
+                    opacity={0.6}
+                  />
+                  <circle
+                    cx={lx}
+                    cy={ly}
+                    r={9}
+                    fill="var(--app-surface-0)"
+                    opacity={0.9}
+                  />
+                  <text
+                    x={lx}
+                    y={ly}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fill="var(--app-text-primary)"
+                    fontSize={CORNER_LABEL_FONT_SIZE}
+                    fontWeight={600}
+                  >
+                    {`T${label.id}`}
+                  </text>
+                </g>
+              );
+            })}
 
           {referenceLap?.transformedPoints[0] && (
             <circle
@@ -1110,18 +1189,20 @@ export function CompareTrackMap({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        {displayData.laps.map((lap) => (
-          <div key={`legend-${lap.id}`} className="flex items-center gap-2">
-            <span
-              className="inline-block h-2.5 w-6 rounded-full"
-              style={{ backgroundColor: lap.color, opacity: lap.isReference ? 1 : 0.72 }}
-            />
-            <span className="text-[10px] uppercase tracking-[0.12em] text-text-muted">
-              {lap.label}
-              {lap.isReference ? " · ref" : ""}
-            </span>
-          </div>
-        ))}
+        {displayData.laps
+          .filter((lap) => !lap.invisible)
+          .map((lap) => (
+            <div key={`legend-${lap.id}`} className="flex items-center gap-2">
+              <span
+                className="inline-block h-2.5 w-6 rounded-full"
+                style={{ backgroundColor: lap.color, opacity: lap.isReference ? 1 : 0.72 }}
+              />
+              <span className="text-[10px] uppercase tracking-[0.12em] text-text-muted">
+                {lap.label}
+                {lap.isReference ? " · ref" : ""}
+              </span>
+            </div>
+          ))}
       </div>
 
       {showCorners && (

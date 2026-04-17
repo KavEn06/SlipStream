@@ -51,7 +51,7 @@ interface ChartRow {
 }
 
 const CAND_COLOR = "#f472b6"; // pink-400 — driver's/advice lap
-const BASE_COLOR = "#d1d5db"; // zinc-300 — reference lap
+const BASE_COLOR = "#7dd3fc"; // sky-300 — reference lap
 
 const CHART_TOOLTIP_STYLE = {
   background: "rgba(14,14,20,0.92)",
@@ -299,7 +299,7 @@ function MiniChart({
               dataKey={baseKey as string}
               stroke={BASE_COLOR}
               dot={false}
-              strokeWidth={1.5}
+              strokeWidth={1.8}
               strokeOpacity={0.75}
               isAnimationActive={false}
             />
@@ -307,7 +307,7 @@ function MiniChart({
               dataKey={candKey as string}
               stroke={CAND_COLOR}
               dot={false}
-              strokeWidth={2}
+              strokeWidth={2.8}
               isAnimationActive={false}
             />
           </LineChart>
@@ -323,6 +323,9 @@ interface Props {
   sessionId: string;
   baselineLapNumber: number;
   referenceLengthM: number;
+  // Extra lap numbers fetched purely so the track envelope reflects every
+  // racing line that actually ran the corner. They are not drawn.
+  additionalLapNumbers?: number[];
 }
 
 export function CornerDetailView({
@@ -331,20 +334,41 @@ export function CornerDetailView({
   sessionId,
   baselineLapNumber,
   referenceLengthM,
+  additionalLapNumbers = [],
 }: Props) {
   const [candLap, setCandLap] = useState<LapData | null>(null);
   const [baseLap, setBaseLap] = useState<LapData | null>(null);
+  const [extraLaps, setExtraLaps] = useState<LapData[]>([]);
   const [loading, setLoading] = useState(false);
   const [hoveredProgressNorm, setHoveredProgressNorm] = useState<number | null>(null);
   const [visibleCharts, setVisibleCharts] = useState(DEFAULT_VISIBLE_CHARTS);
   const abortRef = useRef(false);
+
+  const extraLapsKey = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          additionalLapNumbers.filter(
+            (n) => n !== finding.lap_number && n !== baselineLapNumber,
+          ),
+        ),
+      )
+        .sort((a, b) => a - b)
+        .join(","),
+    [additionalLapNumbers, baselineLapNumber, finding.lap_number],
+  );
 
   useEffect(() => {
     abortRef.current = false;
     setLoading(true);
     setCandLap(null);
     setBaseLap(null);
+    setExtraLaps([]);
     setHoveredProgressNorm(null);
+
+    const extraNumbers = extraLapsKey
+      ? extraLapsKey.split(",").map((s) => Number(s))
+      : [];
 
     Promise.all([
       fetchLapCached(sessionId, finding.lap_number),
@@ -362,10 +386,24 @@ export function CornerDetailView({
         if (!abortRef.current) setLoading(false);
       });
 
+    // Fetch extras in parallel; show them progressively as they arrive so the
+    // primary cand/ref view doesn't wait on the rest of the field.
+    Promise.allSettled(
+      extraNumbers.map((lapNumber) => fetchLapCached(sessionId, lapNumber)),
+    ).then((results) => {
+      if (abortRef.current) return;
+      const loaded = results
+        .filter(
+          (r): r is PromiseFulfilledResult<LapData> => r.status === "fulfilled",
+        )
+        .map((r) => r.value);
+      setExtraLaps(loaded);
+    });
+
     return () => {
       abortRef.current = true;
     };
-  }, [sessionId, finding.lap_number, baselineLapNumber]);
+  }, [sessionId, finding.lap_number, baselineLapNumber, extraLapsKey]);
 
   // Window bounds: approach start → corner end (with a tiny exit buffer)
   const approachNorm = Math.max(
@@ -424,10 +462,8 @@ export function CornerDetailView({
     .filter((e) => e.progress_start !== undefined)
     .map((e) => Math.round((e.progress_start as number) * referenceLengthM));
 
-  // Active marker on track map: first evidence ref progress_start
-  const primaryEventNorm =
-    (finding.evidence_refs[0]?.progress_start as number | undefined) ?? null;
-  const activeTrackProgressNorm = hoveredProgressNorm ?? primaryEventNorm ?? null;
+  // Active marker on track map: segment approach start by default
+  const activeTrackProgressNorm = hoveredProgressNorm ?? approachNorm;
   const trackSeries = useMemo(
     () =>
       candLap && baseLap
@@ -446,9 +482,17 @@ export function CornerDetailView({
               isReference: true,
               records: baseLap.records,
             },
+            ...extraLaps.map((lap) => ({
+              id: `envelope-${sessionId}-${lap.lap_number}`,
+              label: `Lap ${lap.lap_number}`,
+              color: BASE_COLOR,
+              isReference: false,
+              records: lap.records,
+              invisible: true,
+            })),
           ]
         : null,
-    [baseLap, baselineLapNumber, candLap, finding.lap_number, sessionId],
+    [baseLap, baselineLapNumber, candLap, extraLaps, finding.lap_number, sessionId],
   );
   const visibleChartKeys = DETAIL_CHART_ORDER.filter((key) => visibleCharts[key]);
 
@@ -509,9 +553,9 @@ export function CornerDetailView({
             activeMode="progress"
             height={280}
             corners={[cornerDef]}
-            focusStartProgressNorm={approachNorm}
-            focusEndProgressNorm={endNorm}
-            autoFocusKey={finding.finding_id}
+            focusStartProgressNorm={cornerDef.start_progress_norm}
+            focusEndProgressNorm={cornerDef.end_progress_norm}
+            autoFocusKey={`${finding.finding_id}:${extraLaps.length}`}
             showTrackEnvelope
           />
         ) : null}

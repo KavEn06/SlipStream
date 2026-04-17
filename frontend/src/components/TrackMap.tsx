@@ -18,9 +18,9 @@ const THREE_D_OUTLINE_OUTER_WIDTH = 6.8;
 const THREE_D_OUTLINE_INNER_WIDTH = 4.4;
 const THREE_D_TRACK_WIDTH = 1.85;
 
-const CORNER_ENTRY_COLOR = "rgba(59,130,246,0.55)";
-const CORNER_CENTER_COLOR = "rgba(249,115,22,0.60)";
-const CORNER_EXIT_COLOR = "rgba(34,197,94,0.55)";
+const CORNER_ENTRY_COLOR = "rgba(59,130,246,0.70)";
+const CORNER_CENTER_COLOR = "rgba(249,115,22,0.75)";
+const CORNER_EXIT_COLOR = "rgba(34,197,94,0.70)";
 const CORNER_STROKE_WIDTH = 4.5;
 const CORNER_LABEL_FONT_SIZE = 9;
 
@@ -197,6 +197,8 @@ function buildSmoothPath(points: ProjectedTrackPoint[]): string {
   return path;
 }
 
+const CORNER_LABEL_OFFSET = 20;
+
 interface CornerSegment {
   cornerIndex: number;
   region: "entry" | "center" | "exit";
@@ -204,6 +206,8 @@ interface CornerSegment {
   color: string;
   labelX: number;
   labelY: number;
+  labelOffsetX: number;
+  labelOffsetY: number;
   cornerId: number;
   direction: string;
 }
@@ -265,6 +269,13 @@ function buildCornerSegments(
       if (pts.length < 2) continue;
 
       const mid = pts[Math.floor(pts.length / 2)];
+      const firstPt = pts[0];
+      const lastPt = pts[pts.length - 1];
+      const dx = lastPt.sx - firstPt.sx;
+      const dy = lastPt.sy - firstPt.sy;
+      const segLen = Math.sqrt(dx * dx + dy * dy) || 1;
+      const labelOffsetX = (dy / segLen) * CORNER_LABEL_OFFSET;
+      const labelOffsetY = (-dx / segLen) * CORNER_LABEL_OFFSET;
       segments.push({
         cornerIndex: ci,
         region: range.region,
@@ -272,6 +283,8 @@ function buildCornerSegments(
         color: range.color,
         labelX: mid.sx,
         labelY: mid.sy,
+        labelOffsetX,
+        labelOffsetY,
         cornerId: c.corner_id,
         direction: c.direction,
       });
@@ -412,11 +425,25 @@ export function TrackMap({
   const cornerLabels = useMemo(() => {
     if (!showCorners || !corners || cornerSegments.length === 0) return [];
     const seen = new Set<number>();
-    const labels: { x: number; y: number; id: number; dir: string }[] = [];
+    const labels: {
+      x: number;
+      y: number;
+      offsetX: number;
+      offsetY: number;
+      id: number;
+      dir: string;
+    }[] = [];
     for (const seg of cornerSegments) {
       if (seg.region === "center" && !seen.has(seg.cornerId)) {
         seen.add(seg.cornerId);
-        labels.push({ x: seg.labelX, y: seg.labelY, id: seg.cornerId, dir: seg.direction });
+        labels.push({
+          x: seg.labelX,
+          y: seg.labelY,
+          offsetX: seg.labelOffsetX,
+          offsetY: seg.labelOffsetY,
+          id: seg.cornerId,
+          dir: seg.direction,
+        });
       }
     }
     return labels;
@@ -773,28 +800,48 @@ export function TrackMap({
               />
             ))}
 
-            {showCorners && cornerLabels.map((label) => (
-              <g key={`label-${label.id}`}>
-                <circle
-                  cx={label.x}
-                  cy={label.y}
-                  r={10 / zoom}
-                  fill="var(--app-surface-0)"
-                  opacity={0.85}
-                />
-                <text
-                  x={label.x}
-                  y={label.y}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fill="var(--app-text-primary)"
-                  fontSize={CORNER_LABEL_FONT_SIZE / zoom}
-                  fontWeight={600}
-                >
-                  {`T${label.id}`}
-                </text>
-              </g>
-            ))}
+            {showCorners && cornerLabels.map((label) => {
+              const lx = label.x + label.offsetX / zoom;
+              const ly = label.y + label.offsetY / zoom;
+              return (
+                <g key={`label-${label.id}`}>
+                  <line
+                    x1={label.x}
+                    y1={label.y}
+                    x2={lx}
+                    y2={ly}
+                    stroke="var(--app-text-muted)"
+                    strokeWidth={0.8 / zoom}
+                    opacity={0.5}
+                  />
+                  <circle
+                    cx={label.x}
+                    cy={label.y}
+                    r={2 / zoom}
+                    fill="var(--app-text-muted)"
+                    opacity={0.6}
+                  />
+                  <circle
+                    cx={lx}
+                    cy={ly}
+                    r={9 / zoom}
+                    fill="var(--app-surface-0)"
+                    opacity={0.9}
+                  />
+                  <text
+                    x={lx}
+                    y={ly}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fill="var(--app-text-primary)"
+                    fontSize={CORNER_LABEL_FONT_SIZE / zoom}
+                    fontWeight={600}
+                  >
+                    {`T${label.id}`}
+                  </text>
+                </g>
+              );
+            })}
 
             {startPoint && (
               <circle
