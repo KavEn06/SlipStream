@@ -185,13 +185,17 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
     };
   }, [enabled, sessionId]);
 
-  const additionalLapNumbers = useMemo(
-    () =>
-      analysis
-        ? allLapNumbers.filter((n) => n !== analysis.reference_lap_number)
-        : allLapNumbers,
-    [allLapNumbers, analysis],
-  );
+  const additionalLapNumbers = useMemo(() => {
+    const candidates = analysis
+      ? allLapNumbers.filter((n) => n !== analysis.reference_lap_number)
+      : allLapNumbers;
+    // Cap to 8 uniformly sampled laps so the track envelope stays accurate
+    // without flooding the network or making the envelope useMemo expensive.
+    const MAX_EXTRA = 8;
+    if (candidates.length <= MAX_EXTRA) return candidates;
+    const step = candidates.length / MAX_EXTRA;
+    return Array.from({ length: MAX_EXTRA }, (_, i) => candidates[Math.round(i * step)]);
+  }, [allLapNumbers, analysis]);
 
   // Auto-select first finding when analysis loads
   useEffect(() => {

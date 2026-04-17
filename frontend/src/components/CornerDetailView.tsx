@@ -555,7 +555,7 @@ export function CornerDetailView({
             corners={[cornerDef]}
             focusStartProgressNorm={cornerDef.start_progress_norm}
             focusEndProgressNorm={cornerDef.end_progress_norm}
-            autoFocusKey={`${finding.finding_id}:${extraLaps.length}`}
+            autoFocusKey={finding.finding_id}
             showTrackEnvelope
           />
         ) : null}

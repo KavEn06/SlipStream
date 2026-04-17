@@ -561,9 +561,12 @@ export function CompareTrackMap({
     }
 
     let maxLateralPx = 0;
+    // Sample every 12th point to keep envelope sizing O(n) rather than O(n²).
+    const STRIDE = 12;
     for (const lap of preparedSeries.laps) {
       if (lap.isReference) continue;
-      for (const point of lap.projected) {
+      for (let i = 0; i < lap.projected.length; i += STRIDE) {
+        const point = lap.projected[i];
         if (point.progress === null) continue;
         const referencePoint = interpolateTrackPoint(
           referencePreparedLap.projected,
