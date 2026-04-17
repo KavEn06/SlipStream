@@ -12,6 +12,7 @@ import type {
   SessionDetail,
   SessionSummary,
   SessionUpdateRequest,
+  TrackOutline,
   TrackSegmentation,
 } from "../types";
 
@@ -73,6 +74,9 @@ export const api = {
 
   getSegmentation: (sessionId: string) =>
     fetchJson<TrackSegmentation>(`/sessions/${sessionId}/segmentation`),
+
+  getTrackOutline: (sessionId: string) =>
+    fetchJson<TrackOutline>(`/sessions/${sessionId}/track-outline`),
 
   deleteSession: (id: string) =>
     fetchJson<DeleteResponse>(`/sessions/${id}`, { method: "DELETE" }),

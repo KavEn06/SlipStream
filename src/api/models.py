@@ -105,12 +105,37 @@ class LapOverlaySeries(BaseModel):
     records: list[dict]
 
 
+class TrackOutlinePoint(BaseModel):
+    progress_norm: float
+    distance_m: float
+    center_x: float
+    center_z: float
+    left_x: float
+    left_z: float
+    right_x: float
+    right_z: float
+    width_m: float
+
+
+class TrackOutline(BaseModel):
+    outline_version: str
+    session_id: str
+    source_kind: str
+    reference_lap_number: int
+    reference_length_m: float
+    sample_spacing_m: float
+    source_lap_numbers: list[int] = []
+    contributing_lap_count: int = 0
+    points: list[TrackOutlinePoint] = []
+
+
 class LapOverlayResponse(BaseModel):
     track_circuit: str
     track_layout: str
     track_location: str | None = None
     reference_lap: LapOverlaySelection
     segmentation: dict | None = None
+    track_outline: TrackOutline | None = None
     series: list[LapOverlaySeries]
 
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CornerDefinition } from "../types";
+import type { CornerDefinition, TrackOutline } from "../types";
 
 const MIN_POSITION_SAMPLES = 20;
 const SVG_PADDING = 24;
@@ -34,6 +34,7 @@ function clampPitch(value: number): number {
 
 interface Props {
   records: Record<string, number | string>[];
+  trackOutline?: TrackOutline | null;
   activeIndex: number | null;
   activeScrubValue?: number | string | null;
   xKey: string;
@@ -64,6 +65,12 @@ interface WorldTrackPoint {
   x: number;
   y: number;
   scrub: number | null;
+  progress: number | null;
+}
+
+interface OutlineTrackPoint {
+  x: number;
+  z: number;
   progress: number | null;
 }
 
@@ -232,6 +239,66 @@ function buildSegmentPath(points: ProjectedTrackPoint[]): string {
   return path;
 }
 
+function extractOutlineTrackPoints(trackOutline: TrackOutline | null | undefined) {
+  if (!trackOutline?.points?.length) {
+    return null;
+  }
+
+  const leftPoints: OutlineTrackPoint[] = [];
+  const rightPoints: OutlineTrackPoint[] = [];
+
+  for (const point of trackOutline.points) {
+    const progress =
+      typeof point.progress_norm === "number" ? point.progress_norm : Number(point.progress_norm);
+    const leftX = typeof point.left_x === "number" ? point.left_x : Number(point.left_x);
+    const leftZ = typeof point.left_z === "number" ? point.left_z : Number(point.left_z);
+    const rightX = typeof point.right_x === "number" ? point.right_x : Number(point.right_x);
+    const rightZ = typeof point.right_z === "number" ? point.right_z : Number(point.right_z);
+
+    if (
+      !Number.isFinite(leftX) ||
+      !Number.isFinite(leftZ) ||
+      !Number.isFinite(rightX) ||
+      !Number.isFinite(rightZ)
+    ) {
+      continue;
+    }
+
+    leftPoints.push({
+      x: leftX,
+      z: leftZ,
+      progress: Number.isFinite(progress) ? progress : null,
+    });
+    rightPoints.push({
+      x: rightX,
+      z: rightZ,
+      progress: Number.isFinite(progress) ? progress : null,
+    });
+  }
+
+  if (leftPoints.length < 2 || rightPoints.length < 2) {
+    return null;
+  }
+
+  return { leftPoints, rightPoints };
+}
+
+function buildClosedPolygonPath(leftPoints: ProjectedTrackPoint[], rightPoints: ProjectedTrackPoint[]): string {
+  if (leftPoints.length < 2 || rightPoints.length < 2) {
+    return "";
+  }
+
+  const commands = [`M ${leftPoints[0].sx} ${leftPoints[0].sy}`];
+  for (let index = 1; index < leftPoints.length; index += 1) {
+    commands.push(`L ${leftPoints[index].sx} ${leftPoints[index].sy}`);
+  }
+  for (let index = rightPoints.length - 1; index >= 0; index -= 1) {
+    commands.push(`L ${rightPoints[index].sx} ${rightPoints[index].sy}`);
+  }
+  commands.push("Z");
+  return commands.join(" ");
+}
+
 function buildCornerSegments(
   corners: CornerDefinition[],
   projected: ProjectedTrackPoint[],
@@ -296,6 +363,7 @@ function buildCornerSegments(
 
 export function TrackMap({
   records,
+  trackOutline = null,
   activeIndex,
   activeScrubValue = null,
   xKey,
@@ -334,6 +402,7 @@ export function TrackMap({
     if (!points) return null;
 
     const smoothedPoints = smoothTrackPoints(points);
+    const outlinePoints = viewMode !== "3d" ? extractOutlineTrackPoints(trackOutline) : null;
     const averageX =
       smoothedPoints.reduce((sum, point) => sum + point.x, 0) / smoothedPoints.length;
     const averageY =
@@ -348,8 +417,30 @@ export function TrackMap({
       scrub: point.scrub,
       progress: point.progress,
     }));
+    const centeredOutline = outlinePoints
+      ? {
+          leftPoints: outlinePoints.leftPoints.map((point) => ({
+            x: point.x - averageX,
+            z: point.z - averageZ,
+            progress: point.progress,
+          })),
+          rightPoints: outlinePoints.rightPoints.map((point) => ({
+            x: point.x - averageX,
+            z: point.z - averageZ,
+            progress: point.progress,
+          })),
+        }
+      : null;
     const xzBounds = computeBounds(
-      centeredPoints.map((point) => ({ x: point.x, y: point.z })),
+      [
+        ...centeredPoints.map((point) => ({ x: point.x, y: point.z })),
+        ...(centeredOutline
+          ? [
+              ...centeredOutline.leftPoints.map((point) => ({ x: point.x, y: point.z })),
+              ...centeredOutline.rightPoints.map((point) => ({ x: point.x, y: point.z })),
+            ]
+          : []),
+      ],
     );
     const xyBounds = computeBounds(
       centeredPoints.map((point) => ({ x: point.x, y: point.y })),
@@ -387,7 +478,15 @@ export function TrackMap({
       };
     });
 
-    const bounds = computeBounds(worldPoints);
+    const bounds = computeBounds([
+      ...worldPoints,
+      ...(centeredOutline && viewMode !== "3d"
+        ? [
+            ...centeredOutline.leftPoints.map((point) => ({ x: point.x, y: point.z })),
+            ...centeredOutline.rightPoints.map((point) => ({ x: point.x, y: point.z })),
+          ]
+        : []),
+    ]);
     const worldRangeX = bounds.maxX - bounds.minX || 1;
     const worldRangeY = bounds.maxY - bounds.minY || 1;
 
@@ -410,8 +509,37 @@ export function TrackMap({
 
     const smoothPath = buildSmoothPath(projected);
 
-    return { projected, smoothPath, viewW, viewH };
-  }, [points, rotation.pitch, rotation.yaw, viewMode]);
+    const outlineProjected = centeredOutline && viewMode !== "3d"
+      ? {
+          leftPoints: centeredOutline.leftPoints.map((point) => ({
+            sx: offsetX + (point.x - bounds.minX) * scale,
+            sy: offsetY + (point.z - bounds.minY) * scale,
+            scrub: null,
+            progress: point.progress,
+          })),
+          rightPoints: centeredOutline.rightPoints.map((point) => ({
+            sx: offsetX + (point.x - bounds.minX) * scale,
+            sy: offsetY + (point.z - bounds.minY) * scale,
+            scrub: null,
+            progress: point.progress,
+          })),
+        }
+      : null;
+
+    return {
+      projected,
+      smoothPath,
+      viewW,
+      viewH,
+      outline: outlineProjected
+        ? {
+            leftPath: buildSmoothPath(outlineProjected.leftPoints),
+            rightPath: buildSmoothPath(outlineProjected.rightPoints),
+            polygonPath: buildClosedPolygonPath(outlineProjected.leftPoints, outlineProjected.rightPoints),
+          }
+        : null,
+    };
+  }, [points, rotation.pitch, rotation.yaw, trackOutline, viewMode]);
 
   const hasCorners = Boolean(corners && corners.length > 0);
   const [cornersVisible, setCornersVisible] = useState(true);
@@ -752,10 +880,10 @@ export function TrackMap({
             transform={`translate(${pan.x / (zoom > 0 ? zoom : 1)}, ${pan.y / (zoom > 0 ? zoom : 1)}) scale(${zoom})`}
             style={{ transformOrigin: `${pathData.viewW / 2}px ${pathData.viewH / 2}px` }}
           >
-            {viewMode === "3d" && (
-              <>
-                <path
-                  d={pathData.smoothPath}
+          {viewMode === "3d" && (
+            <>
+              <path
+                d={pathData.smoothPath}
                   fill="none"
                   stroke="var(--app-surface-0)"
                   strokeWidth={THREE_D_OUTLINE_OUTER_WIDTH}
@@ -772,7 +900,36 @@ export function TrackMap({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   vectorEffect="non-scaling-stroke"
-                  opacity={0.78}
+                opacity={0.78}
+              />
+            </>
+          )}
+            {viewMode !== "3d" && pathData.outline?.polygonPath && (
+              <>
+                <path
+                  d={pathData.outline.polygonPath}
+                  fill="rgba(8,10,16,0.82)"
+                  opacity={0.92}
+                />
+                <path
+                  d={pathData.outline.leftPath}
+                  fill="none"
+                  stroke="rgba(255,255,255,0.55)"
+                  strokeWidth={1.6}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                  opacity={0.95}
+                />
+                <path
+                  d={pathData.outline.rightPath}
+                  fill="none"
+                  stroke="rgba(255,255,255,0.55)"
+                  strokeWidth={1.6}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                  opacity={0.95}
                 />
               </>
             )}

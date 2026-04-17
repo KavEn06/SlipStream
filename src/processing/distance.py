@@ -15,6 +15,7 @@ from src.core.schemas import PROCESSED_LAP_COLUMNS, RAW_LAP_COLUMNS, REFERENCE_L
 from src.core.schemas import LapValidationResult
 from src.processing.alignment import align_session_laps
 from src.processing.segmentation import segment_track
+from src.processing.track_outline import TRACK_OUTLINE_FILENAME, TrackOutlineArtifact, build_session_track_outline
 from src.processing.validation import build_validation_context, evaluate_lap_validation, write_validation_result
 
 
@@ -339,11 +340,18 @@ def process_session(raw_session_dir: str | Path, processed_session_dir: str | Pa
     if alignment_artifacts.reference_path is not None:
         segmentation = segment_track(alignment_artifacts.reference_path)
 
+    track_outline = build_session_track_outline(
+        session_id=session_id,
+        aligned_laps=alignment_artifacts.aligned_laps,
+        reference_path_df=alignment_artifacts.reference_path,
+    )
+
     processed_metadata = _build_processed_session_metadata(
         session_id=session_id,
         session_metadata=session_metadata,
         total_laps=len(staged_laps),
         alignment_metadata=alignment_artifacts.metadata,
+        track_outline_summary=_build_track_outline_summary(track_outline),
     )
 
     staging_dir = _create_managed_artifact_temp_dir(processed_dir, "staging")
@@ -354,6 +362,7 @@ def process_session(raw_session_dir: str | Path, processed_session_dir: str | Pa
             alignment_artifacts=alignment_artifacts,
             processed_metadata=processed_metadata,
             segmentation=segmentation,
+            track_outline=track_outline,
         )
         _commit_managed_processed_artifacts(staging_dir, processed_dir)
     except Exception:
@@ -469,13 +478,27 @@ def _build_processed_session_metadata(
     session_metadata: dict[str, object] | None,
     total_laps: int,
     alignment_metadata: dict[str, object],
+    track_outline_summary: dict[str, object],
 ) -> dict[str, object]:
     processed_metadata = dict(session_metadata or {})
     processed_metadata["session_id"] = processed_metadata.get("session_id") or session_id
     processed_metadata["total_laps"] = int(processed_metadata.get("total_laps", total_laps) or total_laps)
     processed_metadata["processed_schema_version"] = SCHEMA_VERSION
     processed_metadata["alignment"] = alignment_metadata
+    processed_metadata["track_outline"] = track_outline_summary
     return processed_metadata
+
+
+def _build_track_outline_summary(track_outline: TrackOutlineArtifact | None) -> dict[str, object]:
+    if track_outline is None:
+        return {
+            "status": "unavailable",
+            "artifact_file": None,
+            "source_kind": None,
+            "contributing_lap_count": 0,
+            "source_lap_numbers": [],
+        }
+    return track_outline.metadata_summary()
 
 
 def _find_duplicate_lap_numbers(staged_laps: list[dict[str, object]]) -> list[int]:
@@ -493,6 +516,7 @@ def _write_session_artifacts(
     alignment_artifacts,
     processed_metadata: dict[str, object],
     segmentation=None,
+    track_outline: TrackOutlineArtifact | None = None,
 ) -> list[Path]:
     target_dir.mkdir(parents=True, exist_ok=True)
     written_paths: list[Path] = []
@@ -514,6 +538,10 @@ def _write_session_artifacts(
         seg_path = target_dir / "track_segmentation.json"
         seg_path.write_text(json.dumps(segmentation.to_dict(), indent=2), encoding="utf-8")
 
+    if track_outline is not None:
+        outline_path = target_dir / TRACK_OUTLINE_FILENAME
+        outline_path.write_text(json.dumps(track_outline.to_dict(), indent=2), encoding="utf-8")
+
     (target_dir / "metadata.json").write_text(json.dumps(processed_metadata, indent=2), encoding="utf-8")
     return written_paths
 
@@ -525,7 +553,7 @@ def _managed_processed_artifact_paths(directory: Path) -> list[Path]:
     managed_paths = [path for path in directory.glob("lap_*.csv") if path.is_file()]
     managed_paths.extend(path for path in directory.glob("*.validation.json") if path.is_file())
 
-    for artifact_name in ("reference_path.csv", "track_segmentation.json", "metadata.json"):
+    for artifact_name in ("reference_path.csv", "track_segmentation.json", TRACK_OUTLINE_FILENAME, "metadata.json"):
         artifact_path = directory / artifact_name
         if artifact_path.is_file():
             managed_paths.append(artifact_path)

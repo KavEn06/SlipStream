@@ -8,11 +8,13 @@ from src.api.models import (
     SessionDetail,
     SessionSummary,
     SessionUpdateRequest,
+    TrackOutline,
 )
 from src.api.services.capture_manager import CaptureManager
 from src.api.services.session_scanner import (
     delete_session,
     get_session_detail,
+    get_track_outline,
     get_track_segmentation,
     list_sessions,
     update_session_metadata,
@@ -76,6 +78,14 @@ def get_segmentation(session_id: str):
     result = get_track_segmentation(session_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Segmentation not available")
+    return result
+
+
+@router.get("/{session_id}/track-outline", response_model=TrackOutline)
+def get_session_track_outline(session_id: str):
+    result = get_track_outline(session_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Track outline not available")
     return result
 
 

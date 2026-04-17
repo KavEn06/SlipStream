@@ -754,6 +754,7 @@ export function LapComparePage() {
 
               <CompareTrackMap
                 series={overlaySeries}
+                trackOutline={overlayData?.track_outline ?? null}
                 activeMode={xAxisMode}
                 activeProgressNorm={scrubState.progressNorm}
                 activeElapsedTimeS={scrubState.elapsedTimeS}

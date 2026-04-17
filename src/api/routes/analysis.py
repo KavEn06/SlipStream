@@ -231,4 +231,6 @@ def get_session_analysis(session_id: str):
             status_code=500,
             detail="Analysis artifact has an unexpected top-level shape",
         )
-    return _normalize_analysis_payload_for_output(session_id, payload)
+    normalized_payload = _normalize_analysis_payload_for_output(session_id, payload)
+    normalized_payload["track_outline"] = session_scanner.get_track_outline(session_id)
+    return normalized_payload

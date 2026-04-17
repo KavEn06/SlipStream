@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-SCHEMA_VERSION = "2026.04-phase2-alignment"
+SCHEMA_VERSION = "2026.04-phase2-track-outline"
 VALIDATION_THRESHOLDS_VERSION = "v1-fixed"
 
 VALIDATION_REASON_TOO_FEW_SAMPLES = "too_few_samples"

@@ -45,6 +45,46 @@ class AnalysisRouteTests(unittest.TestCase):
         )
         (processed_dir / "lap_000.csv").write_text("LapTimeS\n80.0\n", encoding="utf-8")
         (processed_dir / "lap_001.csv").write_text("LapTimeS\n81.0\n", encoding="utf-8")
+        (processed_dir / "track_outline.json").write_text(
+            json.dumps(
+                {
+                    "outline_version": "test-outline",
+                    "session_id": session_id,
+                    "source_kind": "session_aggregate",
+                    "reference_lap_number": 1,
+                    "reference_length_m": 4300.0,
+                    "sample_spacing_m": 1.0,
+                    "source_lap_numbers": [0, 1],
+                    "contributing_lap_count": 2,
+                    "points": [
+                        {
+                            "progress_norm": 0.0,
+                            "distance_m": 0.0,
+                            "center_x": 0.0,
+                            "center_z": 0.0,
+                            "left_x": -4.5,
+                            "left_z": 0.0,
+                            "right_x": 4.5,
+                            "right_z": 0.0,
+                            "width_m": 9.0,
+                        },
+                        {
+                            "progress_norm": 1.0,
+                            "distance_m": 4300.0,
+                            "center_x": 100.0,
+                            "center_z": 0.0,
+                            "left_x": 95.5,
+                            "left_z": 0.0,
+                            "right_x": 104.5,
+                            "right_z": 0.0,
+                            "width_m": 9.0,
+                        },
+                    ],
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         (processed_dir / "session_analysis.json").write_text(
             json.dumps(
                 {
@@ -154,6 +194,9 @@ class AnalysisRouteTests(unittest.TestCase):
         )
         self.assertEqual(payload["quality_report"]["usable_lap_numbers"], [1, 2])
         self.assertEqual(sorted(payload["quality_report"]["per_lap"].keys()), ["1", "2"])
+        self.assertIsNotNone(payload["track_outline"])
+        self.assertEqual(payload["track_outline"]["reference_lap_number"], 2)
+        self.assertEqual(payload["track_outline"]["source_lap_numbers"], [1, 2])
 
     def _patch_data_roots(self):
         stack = ExitStack()

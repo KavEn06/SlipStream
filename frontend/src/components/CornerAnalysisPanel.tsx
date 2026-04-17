@@ -128,7 +128,6 @@ function DetailHeader({ finding, cornerDef }: DetailHeaderProps) {
 
 export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
   const [analysis, setAnalysis] = useState<SessionAnalysis | null>(null);
-  const [allLapNumbers, setAllLapNumbers] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -161,41 +160,6 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
-
-  // Pull every processed lap so the track envelope reflects the full field,
-  // not just the candidate vs reference pair currently on screen.
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    api
-      .getSession(sessionId)
-      .then((detail) => {
-        if (cancelled) return;
-        setAllLapNumbers(
-          detail.laps
-            .filter((lap) => lap.has_processed)
-            .map((lap) => lap.lap_number),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setAllLapNumbers([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, sessionId]);
-
-  const additionalLapNumbers = useMemo(() => {
-    const candidates = analysis
-      ? allLapNumbers.filter((n) => n !== analysis.reference_lap_number)
-      : allLapNumbers;
-    // Cap to 8 uniformly sampled laps so the track envelope stays accurate
-    // without flooding the network or making the envelope useMemo expensive.
-    const MAX_EXTRA = 8;
-    if (candidates.length <= MAX_EXTRA) return candidates;
-    const step = candidates.length / MAX_EXTRA;
-    return Array.from({ length: MAX_EXTRA }, (_, i) => candidates[Math.round(i * step)]);
-  }, [allLapNumbers, analysis]);
 
   // Auto-select first finding when analysis loads
   useEffect(() => {
@@ -352,7 +316,7 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
                   sessionId={sessionId}
                   baselineLapNumber={analysis.reference_lap_number}
                   referenceLengthM={analysis.reference_length_m}
-                  additionalLapNumbers={additionalLapNumbers}
+                  trackOutline={analysis.track_outline}
                 />
               </div>
             ) : (

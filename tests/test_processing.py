@@ -610,6 +610,7 @@ class ProcessingTests(unittest.TestCase):
             self.assertTrue(all(path.exists() for path in written_paths))
             self.assertTrue((processed_session_dir / "lap_001.validation.json").exists())
             self.assertTrue((processed_session_dir / "reference_path.csv").exists())
+            self.assertTrue((processed_session_dir / "track_outline.json").exists())
 
             processed_metadata = json.loads((processed_session_dir / "metadata.json").read_text(encoding="utf-8"))
             self.assertIn("processed_schema_version", processed_metadata)
@@ -621,6 +622,17 @@ class ProcessingTests(unittest.TestCase):
             self.assertTrue(processed_metadata["alignment"]["laps"]["1"]["is_usable"])
             self.assertTrue(processed_metadata["alignment"]["laps"]["2"]["is_usable"])
             self.assertFalse(processed_metadata["alignment"]["laps"]["3"]["is_usable"])
+            self.assertEqual(processed_metadata["track_outline"]["status"], "complete")
+            self.assertEqual(processed_metadata["track_outline"]["artifact_file"], "track_outline.json")
+            self.assertEqual(processed_metadata["track_outline"]["source_kind"], "session_aggregate")
+            self.assertEqual(processed_metadata["track_outline"]["source_lap_numbers"], [1, 2])
+            self.assertEqual(processed_metadata["track_outline"]["contributing_lap_count"], 2)
+
+            track_outline = json.loads((processed_session_dir / "track_outline.json").read_text(encoding="utf-8"))
+            self.assertEqual(track_outline["source_kind"], "session_aggregate")
+            self.assertEqual(track_outline["source_lap_numbers"], [1, 2])
+            self.assertGreater(len(track_outline["points"]), 20)
+            self.assertGreaterEqual(min(point["width_m"] for point in track_outline["points"]), 9.0)
 
             aligned_reference = pd.read_csv(processed_session_dir / "lap_001.csv")
             aligned_invalid = pd.read_csv(processed_session_dir / "lap_003.csv")
@@ -830,6 +842,7 @@ class ProcessingTests(unittest.TestCase):
             written_paths = process_session(raw_session_dir, processed_session_dir)
             self.assertEqual(len(written_paths), 2)
             self.assertFalse((processed_session_dir / "reference_path.csv").exists())
+            self.assertFalse((processed_session_dir / "track_outline.json").exists())
 
             processed_metadata = json.loads((processed_session_dir / "metadata.json").read_text(encoding="utf-8"))
             aligned_one = pd.read_csv(processed_session_dir / "lap_001.csv")
@@ -881,6 +894,7 @@ class ProcessingTests(unittest.TestCase):
             written_paths = process_session(raw_session_dir, processed_session_dir)
             self.assertEqual(len(written_paths), 2)
             self.assertFalse((processed_session_dir / "reference_path.csv").exists())
+            self.assertFalse((processed_session_dir / "track_outline.json").exists())
 
             processed_metadata = json.loads((processed_session_dir / "metadata.json").read_text(encoding="utf-8"))
             aligned_one = pd.read_csv(processed_session_dir / "lap_001.csv")
@@ -1127,7 +1141,7 @@ class ProcessingTests(unittest.TestCase):
 
         managed_paths = [path for path in processed_dir.glob("lap_*.csv") if path.is_file()]
         managed_paths.extend(path for path in processed_dir.glob("*.validation.json") if path.is_file())
-        for artifact_name in ("reference_path.csv", "metadata.json"):
+        for artifact_name in ("reference_path.csv", "track_segmentation.json", "track_outline.json", "metadata.json"):
             artifact_path = processed_dir / artifact_name
             if artifact_path.is_file():
                 managed_paths.append(artifact_path)

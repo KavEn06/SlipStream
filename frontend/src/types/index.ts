@@ -82,12 +82,37 @@ export interface LapOverlaySeries {
   records: Record<string, number | string>[];
 }
 
+export interface TrackOutlinePoint {
+  progress_norm: number;
+  distance_m: number;
+  center_x: number;
+  center_z: number;
+  left_x: number;
+  left_z: number;
+  right_x: number;
+  right_z: number;
+  width_m: number;
+}
+
+export interface TrackOutline {
+  outline_version: string;
+  session_id: string;
+  source_kind: "session_aggregate" | "synthetic_reference_path" | string;
+  reference_lap_number: number;
+  reference_length_m: number;
+  sample_spacing_m: number;
+  source_lap_numbers: number[];
+  contributing_lap_count: number;
+  points: TrackOutlinePoint[];
+}
+
 export interface LapOverlayResponse {
   track_circuit: string;
   track_layout: string;
   track_location: string | null;
   reference_lap: LapOverlaySelection;
   segmentation: TrackSegmentation | null;
+  track_outline: TrackOutline | null;
   series: LapOverlaySeries[];
 }
 
@@ -178,6 +203,7 @@ export interface SessionAnalysis {
   findings_all: AnalysisFinding[];
   lap_time_delta_reconciliation: Record<string, Record<string, number>>;
   quality_report: Record<string, unknown>;
+  track_outline: TrackOutline | null;
 }
 
 export interface AnalyzeSessionResponse {

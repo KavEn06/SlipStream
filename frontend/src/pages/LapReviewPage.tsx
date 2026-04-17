@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import { LapChart } from "../components/LapChart";
 import { TrackMap } from "../components/TrackMap";
 import { SurfaceMessage, SurfaceSkeleton } from "../components/PageState";
-import type { LapData, TrackSegmentation } from "../types";
+import type { LapData, TrackOutline, TrackSegmentation } from "../types";
 
 type LapDataType = "processed" | "raw";
 type ChartKey = "speed" | "throttle" | "brake" | "steering";
@@ -232,6 +232,7 @@ export function LapReviewPage() {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [activeScrubValue, setActiveScrubValue] = useState<number | string | null>(null);
   const [segmentation, setSegmentation] = useState<TrackSegmentation | null>(null);
+  const [trackOutline, setTrackOutline] = useState<TrackOutline | null>(null);
 
   const handleActiveIndexChange = useCallback((index: number | null) => {
     setActiveIndex(index);
@@ -289,8 +290,18 @@ export function LapReviewPage() {
       }
     };
 
+    const loadTrackOutline = async () => {
+      try {
+        const outline = await api.getTrackOutline(sessionId);
+        if (!cancelled) setTrackOutline(outline);
+      } catch {
+        if (!cancelled) setTrackOutline(null);
+      }
+    };
+
     void loadSessionPreference();
     void loadSegmentation();
+    void loadTrackOutline();
 
     return () => {
       cancelled = true;
@@ -684,6 +695,7 @@ export function LapReviewPage() {
           {hasPositionData && (
             <TrackMap
               records={records}
+              trackOutline={trackOutline}
               activeIndex={activeIndex}
               activeScrubValue={activeScrubValue}
               xKey={xKey}
@@ -698,6 +710,7 @@ export function LapReviewPage() {
           {hasPositionData && (
             <TrackMap
               records={records}
+              trackOutline={trackOutline}
               activeIndex={activeIndex}
               activeScrubValue={activeScrubValue}
               xKey={xKey}

@@ -569,6 +569,46 @@ class SessionScannerTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        (self.processed_root / reference_session_id / "track_outline.json").write_text(
+            json.dumps(
+                {
+                    "outline_version": "test-outline",
+                    "session_id": reference_session_id,
+                    "source_kind": "session_aggregate",
+                    "reference_lap_number": 1,
+                    "reference_length_m": 4660.0,
+                    "sample_spacing_m": 1.0,
+                    "source_lap_numbers": [1],
+                    "contributing_lap_count": 1,
+                    "points": [
+                        {
+                            "progress_norm": 0.0,
+                            "distance_m": 0.0,
+                            "center_x": 0.0,
+                            "center_z": 0.0,
+                            "left_x": -4.5,
+                            "left_z": 0.0,
+                            "right_x": 4.5,
+                            "right_z": 0.0,
+                            "width_m": 9.0,
+                        },
+                        {
+                            "progress_norm": 1.0,
+                            "distance_m": 4660.0,
+                            "center_x": 100.0,
+                            "center_z": 20.0,
+                            "left_x": 95.5,
+                            "left_z": 20.0,
+                            "right_x": 104.5,
+                            "right_z": 20.0,
+                            "width_m": 9.0,
+                        },
+                    ],
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
         with self._patch_data_roots():
             result = session_scanner.build_lap_overlay(
@@ -582,6 +622,9 @@ class SessionScannerTests(unittest.TestCase):
         self.assertEqual(result["track_circuit"], "Circuit de Barcelona-Catalunya")
         self.assertEqual(result["reference_lap"]["session_id"], reference_session_id)
         self.assertIsNotNone(result["segmentation"])
+        self.assertIsNotNone(result["track_outline"])
+        self.assertEqual(result["track_outline"]["source_kind"], "session_aggregate")
+        self.assertEqual(result["track_outline"]["source_lap_numbers"], [1])
         self.assertEqual(len(result["series"]), 2)
         self.assertEqual(list(result["series"][0]["records"][0].keys()), session_scanner.COMPARE_COLUMNS)
         self.assertLessEqual(len(result["series"][0]["records"]), session_scanner.COMPARE_MAX_POINTS)

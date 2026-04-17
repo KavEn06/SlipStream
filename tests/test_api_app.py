@@ -47,6 +47,11 @@ class ApiAppTests(unittest.TestCase):
         self.assertIn("/api/sessions/{session_id}/analyze", paths)
         self.assertIn("/api/sessions/{session_id}/analysis", paths)
 
+    def test_app_registers_track_outline_route(self) -> None:
+        paths = {route.path for route in app.routes}
+
+        self.assertIn("/api/sessions/{session_id}/track-outline", paths)
+
 
 if __name__ == "__main__":
     unittest.main()

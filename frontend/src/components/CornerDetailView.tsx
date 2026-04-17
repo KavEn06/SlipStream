@@ -10,7 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { api } from "../api/client";
-import type { AnalysisFinding, CornerDefinition, LapData } from "../types";
+import type { AnalysisFinding, CornerDefinition, LapData, TrackOutline } from "../types";
 import { CompareTrackMap } from "./CompareTrackMap";
 
 // Module-level cache: persists across component mounts within the page session.
@@ -323,9 +323,7 @@ interface Props {
   sessionId: string;
   baselineLapNumber: number;
   referenceLengthM: number;
-  // Extra lap numbers fetched purely so the track envelope reflects every
-  // racing line that actually ran the corner. They are not drawn.
-  additionalLapNumbers?: number[];
+  trackOutline?: TrackOutline | null;
 }
 
 export function CornerDetailView({
@@ -334,41 +332,21 @@ export function CornerDetailView({
   sessionId,
   baselineLapNumber,
   referenceLengthM,
-  additionalLapNumbers = [],
+  trackOutline = null,
 }: Props) {
   const [candLap, setCandLap] = useState<LapData | null>(null);
   const [baseLap, setBaseLap] = useState<LapData | null>(null);
-  const [extraLaps, setExtraLaps] = useState<LapData[]>([]);
   const [loading, setLoading] = useState(false);
   const [hoveredProgressNorm, setHoveredProgressNorm] = useState<number | null>(null);
   const [visibleCharts, setVisibleCharts] = useState(DEFAULT_VISIBLE_CHARTS);
   const abortRef = useRef(false);
-
-  const extraLapsKey = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          additionalLapNumbers.filter(
-            (n) => n !== finding.lap_number && n !== baselineLapNumber,
-          ),
-        ),
-      )
-        .sort((a, b) => a - b)
-        .join(","),
-    [additionalLapNumbers, baselineLapNumber, finding.lap_number],
-  );
 
   useEffect(() => {
     abortRef.current = false;
     setLoading(true);
     setCandLap(null);
     setBaseLap(null);
-    setExtraLaps([]);
     setHoveredProgressNorm(null);
-
-    const extraNumbers = extraLapsKey
-      ? extraLapsKey.split(",").map((s) => Number(s))
-      : [];
 
     Promise.all([
       fetchLapCached(sessionId, finding.lap_number),
@@ -386,24 +364,10 @@ export function CornerDetailView({
         if (!abortRef.current) setLoading(false);
       });
 
-    // Fetch extras in parallel; show them progressively as they arrive so the
-    // primary cand/ref view doesn't wait on the rest of the field.
-    Promise.allSettled(
-      extraNumbers.map((lapNumber) => fetchLapCached(sessionId, lapNumber)),
-    ).then((results) => {
-      if (abortRef.current) return;
-      const loaded = results
-        .filter(
-          (r): r is PromiseFulfilledResult<LapData> => r.status === "fulfilled",
-        )
-        .map((r) => r.value);
-      setExtraLaps(loaded);
-    });
-
     return () => {
       abortRef.current = true;
     };
-  }, [sessionId, finding.lap_number, baselineLapNumber, extraLapsKey]);
+  }, [sessionId, finding.lap_number, baselineLapNumber]);
 
   // Window bounds: approach start → corner end (with a tiny exit buffer)
   const approachNorm = Math.max(
@@ -482,17 +446,9 @@ export function CornerDetailView({
               isReference: true,
               records: baseLap.records,
             },
-            ...extraLaps.map((lap) => ({
-              id: `envelope-${sessionId}-${lap.lap_number}`,
-              label: `Lap ${lap.lap_number}`,
-              color: BASE_COLOR,
-              isReference: false,
-              records: lap.records,
-              invisible: true,
-            })),
           ]
         : null,
-    [baseLap, baselineLapNumber, candLap, extraLaps, finding.lap_number, sessionId],
+    [baseLap, baselineLapNumber, candLap, finding.lap_number, sessionId],
   );
   const visibleChartKeys = DETAIL_CHART_ORDER.filter((key) => visibleCharts[key]);
 
@@ -549,6 +505,7 @@ export function CornerDetailView({
         ) : trackSeries ? (
           <CompareTrackMap
             series={trackSeries}
+            trackOutline={trackOutline}
             activeProgressNorm={activeTrackProgressNorm}
             activeMode="progress"
             height={280}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CornerDefinition } from "../types";
+import type { CornerDefinition, TrackOutline } from "../types";
 
 const MIN_POSITION_SAMPLES = 20;
 const SVG_PADDING = 24;
@@ -16,8 +16,7 @@ const MIN_PITCH = -1.35;
 const MAX_PITCH = 1.35;
 const THREE_D_OUTLINE_OUTER_WIDTH = 6.8;
 const THREE_D_OUTLINE_INNER_WIDTH = 4.4;
-// Track envelope is sized dynamically from the lateral spread between laps
-// so every racing line we plot stays inside the white edge rails.
+// Fallback envelope sizing when no persisted track outline is available.
 const MIN_TRACK_OUTER_WIDTH = 9;
 const MAX_TRACK_OUTER_WIDTH = 34;
 const TRACK_EDGE_THICKNESS = 1.6; // visible white rail thickness on each side
@@ -50,6 +49,7 @@ export interface CompareTrackSeries {
 
 interface Props {
   series: CompareTrackSeries[];
+  trackOutline?: TrackOutline | null;
   activeProgressNorm?: number | null;
   activeElapsedTimeS?: number | null;
   activeMode?: ActiveMode;
@@ -91,6 +91,16 @@ interface CornerSegment {
   labelOffsetY: number;
   cornerId: number;
   direction: string;
+}
+
+interface CornerRegionOverlay {
+  key: string;
+  cornerIndex: number;
+  region: "entry" | "center" | "exit";
+  color: string;
+  polygonPath: string;
+  startCapPath: string;
+  endCapPath: string;
 }
 
 function clampZoom(value: number): number {
@@ -179,6 +189,56 @@ function smoothTrackPoints(points: TrackPoint[], radius = 2): TrackPoint[] {
   });
 }
 
+function extractOutlineTrackPoints(trackOutline: TrackOutline | null | undefined) {
+  if (!trackOutline?.points?.length) {
+    return null;
+  }
+
+  const leftPoints: TrackPoint[] = [];
+  const rightPoints: TrackPoint[] = [];
+  const centerPoints: TrackPoint[] = [];
+
+  for (const point of trackOutline.points) {
+    const progress =
+      typeof point.progress_norm === "number" ? point.progress_norm : Number(point.progress_norm);
+    const distance =
+      typeof point.distance_m === "number" ? point.distance_m : Number(point.distance_m);
+    const centerX = typeof point.center_x === "number" ? point.center_x : Number(point.center_x);
+    const centerZ = typeof point.center_z === "number" ? point.center_z : Number(point.center_z);
+    const leftX = typeof point.left_x === "number" ? point.left_x : Number(point.left_x);
+    const leftZ = typeof point.left_z === "number" ? point.left_z : Number(point.left_z);
+    const rightX = typeof point.right_x === "number" ? point.right_x : Number(point.right_x);
+    const rightZ = typeof point.right_z === "number" ? point.right_z : Number(point.right_z);
+
+    if (
+      !Number.isFinite(progress) ||
+      !Number.isFinite(distance) ||
+      !Number.isFinite(centerX) ||
+      !Number.isFinite(centerZ) ||
+      !Number.isFinite(leftX) ||
+      !Number.isFinite(leftZ) ||
+      !Number.isFinite(rightX) ||
+      !Number.isFinite(rightZ)
+    ) {
+      continue;
+    }
+
+    const basePoint = {
+      y: 0,
+      elapsedTimeS: null,
+    };
+    leftPoints.push({ x: leftX, z: leftZ, progress, ...basePoint });
+    rightPoints.push({ x: rightX, z: rightZ, progress, ...basePoint });
+    centerPoints.push({ x: centerX, z: centerZ, progress, ...basePoint });
+  }
+
+  if (leftPoints.length < 2 || rightPoints.length < 2 || centerPoints.length < 2) {
+    return null;
+  }
+
+  return { leftPoints, rightPoints, centerPoints };
+}
+
 function computeBounds(points: Array<{ x: number; y: number }>) {
   let minX = Infinity;
   let maxX = -Infinity;
@@ -227,6 +287,50 @@ function buildSegmentPath(points: ProjectedTrackPoint[]): string {
   return buildSmoothPath(points);
 }
 
+function buildLinePath(start: ProjectedTrackPoint, end: ProjectedTrackPoint): string {
+  return `M ${start.sx} ${start.sy} L ${end.sx} ${end.sy}`;
+}
+
+function buildClosedPolygonPath(
+  leftPoints: ProjectedTrackPoint[],
+  rightPoints: ProjectedTrackPoint[],
+): string {
+  if (leftPoints.length < 2 || rightPoints.length < 2) {
+    return "";
+  }
+
+  const commands = [`M ${leftPoints[0].sx} ${leftPoints[0].sy}`];
+  for (let index = 1; index < leftPoints.length; index += 1) {
+    commands.push(`L ${leftPoints[index].sx} ${leftPoints[index].sy}`);
+  }
+  for (let index = rightPoints.length - 1; index >= 0; index -= 1) {
+    commands.push(`L ${rightPoints[index].sx} ${rightPoints[index].sy}`);
+  }
+  commands.push("Z");
+  return commands.join(" ");
+}
+
+function getRangePoints(
+  points: ProjectedTrackPoint[],
+  start: number,
+  end: number,
+): ProjectedTrackPoint[] {
+  const withProgress = points.filter((point) => point.progress !== null);
+  if (start <= end) {
+    return withProgress.filter(
+      (point) => point.progress !== null && point.progress >= start && point.progress <= end,
+    );
+  }
+
+  const tail = withProgress.filter(
+    (point) => point.progress !== null && point.progress >= start,
+  );
+  const head = withProgress.filter(
+    (point) => point.progress !== null && point.progress <= end,
+  );
+  return [...tail, ...head];
+}
+
 function buildCornerSegments(
   corners: CornerDefinition[],
   projected: ProjectedTrackPoint[],
@@ -265,15 +369,7 @@ function buildCornerSegments(
     ];
 
     for (const range of ranges) {
-      const wraps = range.start > range.end;
-      const points = projected.filter((point) => {
-        if (point.progress === null) {
-          return false;
-        }
-        return wraps
-          ? point.progress >= range.start || point.progress <= range.end
-          : point.progress >= range.start && point.progress <= range.end;
-      });
+      const points = getRangePoints(projected, range.start, range.end);
       if (points.length < 2) {
         continue;
       }
@@ -302,6 +398,67 @@ function buildCornerSegments(
   }
 
   return segments;
+}
+
+function buildCornerRegionOverlays(
+  corners: CornerDefinition[],
+  leftPoints: ProjectedTrackPoint[],
+  rightPoints: ProjectedTrackPoint[],
+): CornerRegionOverlay[] {
+  if (!corners.length || leftPoints.length < 2 || rightPoints.length < 2) {
+    return [];
+  }
+
+  const overlays: CornerRegionOverlay[] = [];
+  for (let cornerIndex = 0; cornerIndex < corners.length; cornerIndex += 1) {
+    const corner = corners[cornerIndex];
+    const ranges = [
+      {
+        region: "entry" as const,
+        start: corner.start_progress_norm,
+        end: corner.entry_end_progress_norm,
+        color: CORNER_ENTRY_COLOR,
+      },
+      {
+        region: "center" as const,
+        start: corner.entry_end_progress_norm,
+        end: corner.exit_start_progress_norm,
+        color: CORNER_CENTER_COLOR,
+      },
+      {
+        region: "exit" as const,
+        start: corner.exit_start_progress_norm,
+        end: corner.end_progress_norm,
+        color: CORNER_EXIT_COLOR,
+      },
+    ];
+
+    for (const range of ranges) {
+      const leftRange = getRangePoints(leftPoints, range.start, range.end);
+      const rightRange = getRangePoints(rightPoints, range.start, range.end);
+      const sampleCount = Math.min(leftRange.length, rightRange.length);
+      if (sampleCount < 2) {
+        continue;
+      }
+
+      const clippedLeft = leftRange.slice(0, sampleCount);
+      const clippedRight = rightRange.slice(0, sampleCount);
+      overlays.push({
+        key: `${corner.corner_id}-${range.region}`,
+        cornerIndex,
+        region: range.region,
+        color: range.color,
+        polygonPath: buildClosedPolygonPath(clippedLeft, clippedRight),
+        startCapPath: buildLinePath(clippedLeft[0], clippedRight[0]),
+        endCapPath: buildLinePath(
+          clippedLeft[clippedLeft.length - 1],
+          clippedRight[clippedRight.length - 1],
+        ),
+      });
+    }
+  }
+
+  return overlays;
 }
 
 function progressInRange(
@@ -398,6 +555,7 @@ function applyViewportTransform(
 
 export function CompareTrackMap({
   series,
+  trackOutline = null,
   activeProgressNorm = null,
   activeElapsedTimeS = null,
   activeMode = "progress",
@@ -435,7 +593,6 @@ export function CompareTrackMap({
   const panHoldDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panHoldRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastAutoFocusKeyRef = useRef<string | number | null>(null);
-
   const preparedSeries = useMemo(() => {
     const extracted = series
       .map((lap) => {
@@ -457,6 +614,7 @@ export function CompareTrackMap({
     const averageX = allPoints.reduce((sum, point) => sum + point.x, 0) / allPoints.length;
     const averageY = allPoints.reduce((sum, point) => sum + point.y, 0) / allPoints.length;
     const averageZ = allPoints.reduce((sum, point) => sum + point.z, 0) / allPoints.length;
+    const outlineTrackPoints = viewMode !== "3d" ? extractOutlineTrackPoints(trackOutline) : null;
 
     const centeredSeries = extracted.map((lap) => ({
       ...lap,
@@ -469,8 +627,42 @@ export function CompareTrackMap({
       })),
     }));
 
+    const centeredOutline = outlineTrackPoints
+      ? {
+          leftPoints: outlineTrackPoints.leftPoints.map((point) => ({
+            x: point.x - averageX,
+            y: 0,
+            z: point.z - averageZ,
+            progress: point.progress,
+            elapsedTimeS: null,
+          })),
+          rightPoints: outlineTrackPoints.rightPoints.map((point) => ({
+            x: point.x - averageX,
+            y: 0,
+            z: point.z - averageZ,
+            progress: point.progress,
+            elapsedTimeS: null,
+          })),
+          centerPoints: outlineTrackPoints.centerPoints.map((point) => ({
+            x: point.x - averageX,
+            y: 0,
+            z: point.z - averageZ,
+            progress: point.progress,
+            elapsedTimeS: null,
+          })),
+        }
+      : null;
+
     const xzBounds = computeBounds(
-      centeredSeries.flatMap((lap) => lap.centeredPoints.map((point) => ({ x: point.x, y: point.z }))),
+      [
+        ...centeredSeries.flatMap((lap) => lap.centeredPoints.map((point) => ({ x: point.x, y: point.z }))),
+        ...(centeredOutline
+          ? [
+              ...centeredOutline.leftPoints.map((point) => ({ x: point.x, y: point.z })),
+              ...centeredOutline.rightPoints.map((point) => ({ x: point.x, y: point.z })),
+            ]
+          : []),
+      ],
     );
     const xyBounds = computeBounds(
       centeredSeries.flatMap((lap) => lap.centeredPoints.map((point) => ({ x: point.x, y: point.y }))),
@@ -512,7 +704,15 @@ export function CompareTrackMap({
     }));
 
     const worldBounds = computeBounds(
-      worldSeries.flatMap((lap) => lap.worldPoints.map((point) => ({ x: point.x, y: point.y }))),
+      [
+        ...worldSeries.flatMap((lap) => lap.worldPoints.map((point) => ({ x: point.x, y: point.y }))),
+        ...(centeredOutline && viewMode !== "3d"
+          ? [
+              ...centeredOutline.leftPoints.map((point) => ({ x: point.x, y: point.z })),
+              ...centeredOutline.rightPoints.map((point) => ({ x: point.x, y: point.z })),
+            ]
+          : []),
+      ],
     );
     const worldRangeX = worldBounds.maxX - worldBounds.minX || 1;
     const worldRangeY = worldBounds.maxY - worldBounds.minY || 1;
@@ -540,13 +740,43 @@ export function CompareTrackMap({
           elapsedTimeS: point.elapsedTimeS,
         })),
       })),
+      outline:
+        centeredOutline && viewMode !== "3d"
+          ? {
+              leftProjected: centeredOutline.leftPoints.map((point) => ({
+                sx: offsetX + ((point.x - worldBounds.minX) * scale),
+                sy: offsetY + ((point.z - worldBounds.minY) * scale),
+                progress: point.progress,
+                elapsedTimeS: null,
+              })),
+              rightProjected: centeredOutline.rightPoints.map((point) => ({
+                sx: offsetX + ((point.x - worldBounds.minX) * scale),
+                sy: offsetY + ((point.z - worldBounds.minY) * scale),
+                progress: point.progress,
+                elapsedTimeS: null,
+              })),
+              centerProjected: centeredOutline.centerPoints.map((point) => ({
+                sx: offsetX + ((point.x - worldBounds.minX) * scale),
+                sy: offsetY + ((point.z - worldBounds.minY) * scale),
+                progress: point.progress,
+                elapsedTimeS: null,
+              })),
+              maxWidthPx: centeredOutline.leftPoints.reduce((maxWidth, _point, index) => {
+                const leftPoint = centeredOutline.leftPoints[index];
+                const rightPoint = centeredOutline.rightPoints[index];
+                const widthPx = Math.hypot(
+                  (rightPoint.x - leftPoint.x) * scale,
+                  (rightPoint.z - leftPoint.z) * scale,
+                );
+                return Math.max(maxWidth, widthPx);
+              }, 0),
+            }
+          : null,
     };
-  }, [rotation.pitch, rotation.yaw, series, viewMode]);
+  }, [rotation.pitch, rotation.yaw, series, trackOutline, viewMode]);
 
-  // Track envelope is sized to the maximum lateral deviation between any
-  // racing line and the reference, so every plotted lap sits comfortably
-  // between the white edge rails. Falls back to a sensible minimum when only
-  // one lap is shown or no progress data is available.
+  // When a persisted outline is available, derive the paint width from it.
+  // Otherwise fall back to the old reference-vs-lap spread heuristic.
   const trackWidths = useMemo(() => {
     const fallback = {
       outer: MIN_TRACK_OUTER_WIDTH,
@@ -554,6 +784,16 @@ export function CompareTrackMap({
     };
     if (!preparedSeries) {
       return fallback;
+    }
+    if (preparedSeries.outline) {
+      const outer = Math.min(
+        MAX_TRACK_OUTER_WIDTH,
+        Math.max(MIN_TRACK_OUTER_WIDTH, preparedSeries.outline.maxWidthPx),
+      );
+      return {
+        outer,
+        inner: Math.max(2, outer - 2 * TRACK_EDGE_THICKNESS),
+      };
     }
     const referencePreparedLap = preparedSeries.laps.find((lap) => lap.isReference);
     if (!referencePreparedLap) {
@@ -614,10 +854,45 @@ export function CompareTrackMap({
     return {
       ...preparedSeries,
       laps,
+      outline: preparedSeries.outline
+        ? (() => {
+            const leftPoints = applyViewportTransform(
+              preparedSeries.outline.leftProjected,
+              zoom,
+              pan,
+              preparedSeries.centerX,
+              preparedSeries.centerY,
+            );
+            const rightPoints = applyViewportTransform(
+              preparedSeries.outline.rightProjected,
+              zoom,
+              pan,
+              preparedSeries.centerX,
+              preparedSeries.centerY,
+            );
+            const centerPoints = applyViewportTransform(
+              preparedSeries.outline.centerProjected,
+              zoom,
+              pan,
+              preparedSeries.centerX,
+              preparedSeries.centerY,
+            );
+            return {
+              leftPoints,
+              rightPoints,
+              centerPoints,
+              leftPath: buildSmoothPath(leftPoints),
+              rightPath: buildSmoothPath(rightPoints),
+              polygonPath: buildClosedPolygonPath(leftPoints, rightPoints),
+              maxWidthPx: preparedSeries.outline.maxWidthPx,
+            };
+          })()
+        : null,
     };
   }, [pan, preparedSeries, zoom]);
 
   const referenceLap = displayData?.laps.find((lap) => lap.isReference) ?? null;
+  const displayOutline = displayData?.outline ?? null;
   const hasCorners = Boolean(corners && corners.length > 0 && referenceLap);
   const showCorners = cornersVisible && hasCorners;
 
@@ -627,6 +902,17 @@ export function CompareTrackMap({
     }
     return buildCornerSegments(corners, referenceLap.transformedPoints);
   }, [corners, referenceLap, showCorners]);
+
+  const cornerRegionOverlays = useMemo(() => {
+    if (!showCorners || !corners || !displayOutline) {
+      return [];
+    }
+    return buildCornerRegionOverlays(
+      corners,
+      displayOutline.leftPoints,
+      displayOutline.rightPoints,
+    );
+  }, [corners, displayOutline, showCorners]);
 
   const cornerLabels = useMemo(() => {
     if (!showCorners || !cornerSegments.length) {
@@ -999,42 +1285,102 @@ export function CompareTrackMap({
             </>
           )}
 
-          {/* Corner fills drawn first so track edges render on top of them */}
-          {showCorners &&
-            cornerSegments.map((segment, index) => (
-              <path
-                key={`corner-${segment.cornerId}-${segment.region}-${index}`}
-                d={segment.path}
-                fill="none"
-                stroke={segment.color}
-                strokeWidth={trackWidths.outer}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ))}
-
-          {showTrackEnvelope && referenceLap && (
+          {showTrackEnvelope && viewMode !== "3d" && displayOutline?.polygonPath ? (
             <>
-              {/* Solid edge lines — width sized to contain every racing line */}
               <path
-                d={referenceLap.path}
+                d={displayOutline.polygonPath}
+                fill="rgba(8,10,16,0.82)"
+                opacity={0.92}
+              />
+              {showCorners &&
+                cornerRegionOverlays.map((overlay) => (
+                  <path
+                    key={`corner-fill-${overlay.key}`}
+                    d={overlay.polygonPath}
+                    fill={overlay.color}
+                    opacity={0.82}
+                  />
+                ))}
+              <path
+                d={displayOutline.leftPath}
                 fill="none"
                 stroke="rgba(255,255,255,0.55)"
-                strokeWidth={trackWidths.outer}
+                strokeWidth={TRACK_EDGE_THICKNESS}
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 opacity={0.95}
               />
-              {/* Dark track surface — light enough to let corner colours show through */}
               <path
-                d={referenceLap.path}
+                d={displayOutline.rightPath}
                 fill="none"
-                stroke="rgba(8,10,16,0.82)"
-                strokeWidth={trackWidths.inner}
+                stroke="rgba(255,255,255,0.55)"
+                strokeWidth={TRACK_EDGE_THICKNESS}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                opacity={0.92}
+                opacity={0.95}
               />
+              {showCorners &&
+                cornerRegionOverlays.map((overlay) => (
+                  <g key={`corner-caps-${overlay.key}`}>
+                    <path
+                      d={overlay.startCapPath}
+                      fill="none"
+                      stroke={overlay.color}
+                      strokeWidth={2.2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.95}
+                    />
+                    <path
+                      d={overlay.endCapPath}
+                      fill="none"
+                      stroke={overlay.color}
+                      strokeWidth={2.2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.95}
+                    />
+                  </g>
+                ))}
+            </>
+          ) : (
+            <>
+              {/* Corner fills drawn first so track edges render on top of them */}
+              {showCorners &&
+                cornerSegments.map((segment, index) => (
+                  <path
+                    key={`corner-${segment.cornerId}-${segment.region}-${index}`}
+                    d={segment.path}
+                    fill="none"
+                    stroke={segment.color}
+                    strokeWidth={trackWidths.outer}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ))}
+
+              {showTrackEnvelope && referenceLap && (
+                <>
+                  <path
+                    d={referenceLap.path}
+                    fill="none"
+                    stroke="rgba(255,255,255,0.55)"
+                    strokeWidth={trackWidths.outer}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity={0.95}
+                  />
+                  <path
+                    d={referenceLap.path}
+                    fill="none"
+                    stroke="rgba(8,10,16,0.82)"
+                    strokeWidth={trackWidths.inner}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity={0.92}
+                  />
+                </>
+              )}
             </>
           )}
 

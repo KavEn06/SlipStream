@@ -323,6 +323,7 @@ def build_lap_overlay(
         "track_location": reference_session_detail.get("track_location"),
         "reference_lap": reference_selection,
         "segmentation": get_track_segmentation(normalized_reference["session_id"]),
+        "track_outline": get_track_outline(normalized_reference["session_id"]),
         "series": overlay_series,
     }
 
@@ -693,6 +694,49 @@ def get_track_segmentation(session_id: str) -> dict | None:
         return json.loads(seg_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def get_track_outline(session_id: str) -> dict | None:
+    processed_dir = PROCESSED_DATA_ROOT / session_id
+    outline_path = processed_dir / "track_outline.json"
+    if not outline_path.exists():
+        return None
+    try:
+        payload = json.loads(outline_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    return _normalize_track_outline_for_output(session_id, payload)
+
+
+def _normalize_track_outline_for_output(session_id: str, payload: dict[str, object]) -> dict[str, object]:
+    stored_to_display = get_session_lap_number_mapping(session_id)["stored_to_display"]
+    if not stored_to_display:
+        return payload
+
+    normalized = dict(payload)
+    reference_lap_number = normalized.get("reference_lap_number")
+    if reference_lap_number is not None:
+        normalized["reference_lap_number"] = _map_display_lap_number(reference_lap_number, stored_to_display)
+
+    source_lap_numbers = normalized.get("source_lap_numbers")
+    if isinstance(source_lap_numbers, list):
+        normalized["source_lap_numbers"] = [
+            _map_display_lap_number(lap_number, stored_to_display)
+            for lap_number in source_lap_numbers
+        ]
+
+    return normalized
+
+
+def _map_display_lap_number(value: object, stored_to_display: dict[int, int]) -> object:
+    try:
+        stored_lap_number = int(value)
+    except (TypeError, ValueError):
+        return value
+    return stored_to_display.get(stored_lap_number, stored_lap_number)
 
 
 def _remove_empty_session_dir(directory: Path) -> None:
