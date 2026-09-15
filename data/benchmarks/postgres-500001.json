@@ -1,0 +1,59 @@
+{
+  "benchmark": "synthetic-native-bulk-ingest-v1",
+  "configuration": {
+    "batch_size": 5000,
+    "query_limit": 1000,
+    "requested_rows": 500001,
+    "reset_before_run": true,
+    "sampling_hz": 100.0
+  },
+  "database_backend": "postgresql",
+  "ingest": {
+    "elapsed_s": 37.759478708,
+    "rows_inserted": 500001,
+    "rows_seen": 500001,
+    "rows_updated": 0,
+    "throughput_rows_per_s": 13241.73471425775
+  },
+  "query": {
+    "count_elapsed_ms": 92.24050000000261,
+    "elapsed_ms": 6.062874999997803,
+    "explain_elapsed_ms": 2.5575419999981364,
+    "plan": [
+      {
+        "Plan": {
+          "Async Capable": false,
+          "Node Type": "Limit",
+          "Parallel Aware": false,
+          "Plan Rows": 1,
+          "Plan Width": 16,
+          "Plans": [
+            {
+              "Alias": "raw_telemetry_samples",
+              "Async Capable": false,
+              "Index Cond": "((session_id = 3) AND (lap_id = 3) AND (native_timestamp_ns >= '2500000000000'::bigint) AND (native_timestamp_ns <= '2509990000000'::bigint))",
+              "Index Name": "ix_raw_session_lap_time",
+              "Node Type": "Index Scan",
+              "Parallel Aware": false,
+              "Parent Relationship": "Outer",
+              "Plan Rows": 1,
+              "Plan Width": 16,
+              "Relation Name": "raw_telemetry_samples",
+              "Scan Direction": "Forward",
+              "Startup Cost": 0.38,
+              "Total Cost": 8.4
+            }
+          ],
+          "Startup Cost": 0.38,
+          "Total Cost": 8.4
+        }
+      }
+    ],
+    "range_end_ns": 2509990000000,
+    "range_start_ns": 2500000000000
+  },
+  "row_counts": {
+    "indexed_query_rows": 1000,
+    "stored_native_samples": 500001
+  }
+}

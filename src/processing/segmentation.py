@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 
-SEGMENTATION_VERSION = "2026.04-v3"
+SEGMENTATION_VERSION = "2026.09-v4"
 
 CURVATURE_SMOOTHING_WINDOW = 7
 CURVATURE_NOISE_FLOOR = 0.002
@@ -17,7 +17,10 @@ MIN_STRAIGHT_GAP_M = 40.0
 CENTER_REGION_FRACTION = 0.30
 MIN_REFERENCE_POINTS = 20
 MIN_TURNING_ANGLE_RAD = 0.26
-MIN_SUB_APEX_SEPARATION_M = 30.0
+# Five metres rejects sampling-scale ripples while retaining distinct apexes
+# in tight chicanes. The previous 30 m value contradicted the peak fixtures
+# and collapsed clearly separated, prominent sub-apexes.
+MIN_SUB_APEX_SEPARATION_M = 5.0
 SUB_APEX_PROMINENCE_RATIO = 0.50
 APPROACH_LEAD_M = 80.0
 

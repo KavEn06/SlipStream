@@ -1,0 +1,91 @@
+name: Verification
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend-and-frontend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: slipstream_test
+          POSTGRES_USER: slipstream
+          POSTGRES_PASSWORD: slipstream
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U slipstream -d slipstream_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      DATABASE_URL: postgresql+psycopg://slipstream:slipstream@localhost:5432/slipstream_test
+      SLIPSTREAM_DATA_ROOT: ${{ github.workspace }}/.ci-data
+      SLIPSTREAM_MODEL_ROOT: ${{ github.workspace }}/.ci-data/models
+      SLIPSTREAM_CACHE_ROOT: ${{ github.workspace }}/.ci-data/cache
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Verify PostgreSQL migration round-trip
+        run: |
+          python -m alembic upgrade head
+          python -m alembic check
+          python -m alembic downgrade base
+          python -m alembic upgrade head
+
+      - name: Run backend unit and integration suite
+        run: python -m unittest discover -s tests -v
+
+      - name: Run PostgreSQL benchmark smoke
+        run: |
+          python -m src.benchmarks.bulk_ingest \
+            --rows 5000 \
+            --batch-size 500 \
+            --query-limit 100 \
+            --report .ci-data/reports/postgres-benchmark-smoke.json
+
+      - name: Compile backend sources and tests
+        run: python -m compileall -q src tests migrations
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Test frontend
+        working-directory: frontend
+        run: npm test
+
+      - name: Typecheck frontend
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Upload benchmark smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-benchmark-smoke
+          path: .ci-data/reports/postgres-benchmark-smoke.json
+          if-no-files-found: ignore
