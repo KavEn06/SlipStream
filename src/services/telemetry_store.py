@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from functools import lru_cache
 import math
-from typing import Any, Dict, List, Mapping, Optional, Protocol
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Protocol
 
 import pandas as pd
 from sqlalchemy import func, select
@@ -11,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from src.core.config import get_settings
 from src.core.schemas import PROCESSED_LAP_COLUMNS, RAW_LAP_COLUMNS, SCHEMA_VERSION
 from src.core.telemetry import ProcessedTelemetryContract
+from src.ml.feedback import RATING_SCHEMA_VERSION, RecommendationRatingV1
 from src.db import models
 from src.db.repositories import (
     AnalysisRepository,
@@ -52,6 +54,19 @@ class TelemetryDatastore(Protocol):
     def update_session_conditions(
         self, session_id: str, conditions: Mapping[str, Any]
     ) -> Optional[Dict[str, Any]]: ...
+    def rate_recommendation(
+        self,
+        session_id: str,
+        recommendation_id: str,
+        helpful: bool,
+        reason: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]: ...
+    def get_recommendation_rating(
+        self, session_id: str, recommendation_id: str
+    ) -> Optional[Dict[str, Any]]: ...
+    def ratings_for_session(
+        self, session_id: str, recommendation_ids: Optional[Iterable[str]] = None
+    ) -> Dict[str, Dict[str, Any]]: ...
     def get_model_health(self) -> Dict[str, Any]: ...
     def get_data_health(self) -> Dict[str, Any]: ...
 
@@ -431,42 +446,34 @@ class SQLAlchemyTelemetryStore:
                                 "advisory": True,
                             },
                         )
-                recommendation_repository = RecommendationRepository(
-                    database_session
+            recommendation_repository = RecommendationRepository(database_session)
+            for recommendation in _collect_recommendation_payloads(payload, findings):
+                recommendation_id = recommendation.get("recommendation_id")
+                if not recommendation_id:
+                    continue
+                recommendation_repository.upsert(
+                    recommendation_id=str(recommendation_id),
+                    analysis_run_id=run.id,
+                    hypothesis=str(
+                        recommendation.get("hypothesis")
+                        or "Guarded scenario idea"
+                    ),
+                    payload=recommendation,
+                    model_version_id=model_version_id,
+                    section_key=(
+                        str(recommendation.get("section_key"))
+                        if recommendation.get("section_key") is not None
+                        else None
+                    ),
+                    driver_baseline=(
+                        recommendation.get("driver_baseline")
+                        if isinstance(
+                            recommendation.get("driver_baseline"),
+                            Mapping,
+                        )
+                        else {}
+                    ),
                 )
-                recommendations = ml_context.get("recommendations")
-                if isinstance(recommendations, list):
-                    for recommendation in recommendations:
-                        if not isinstance(recommendation, Mapping):
-                            continue
-                        recommendation_id = recommendation.get(
-                            "recommendation_id"
-                        )
-                        if not recommendation_id:
-                            continue
-                        recommendation_repository.upsert(
-                            recommendation_id=str(recommendation_id),
-                            analysis_run_id=run.id,
-                            hypothesis=str(
-                                recommendation.get("hypothesis")
-                                or "Guarded scenario idea"
-                            ),
-                            payload=recommendation,
-                            model_version_id=model_version_id,
-                            section_key=(
-                                str(recommendation.get("section_key"))
-                                if recommendation.get("section_key") is not None
-                                else None
-                            ),
-                            driver_baseline=(
-                                recommendation.get("driver_baseline")
-                                if isinstance(
-                                    recommendation.get("driver_baseline"),
-                                    Mapping,
-                                )
-                                else {}
-                            ),
-                        )
             return run.id
 
     def get_latest_analysis(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -543,6 +550,126 @@ class SQLAlchemyTelemetryStore:
                     existing.value = payload
             row.conditions = merged
         return self.get_session_conditions(session_id)
+
+    def rate_recommendation(
+        self,
+        session_id: str,
+        recommendation_id: str,
+        helpful: bool,
+        reason: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        with session_scope(self.factory) as database_session:
+            row = self._ensure_session_recommendation(
+                database_session, session_id, recommendation_id
+            )
+            if row is None:
+                return None
+            contract = RecommendationRatingV1(
+                recommendation_id=row.id,
+                helpful=bool(helpful),
+                reason=reason,
+                context={"session_id": session_id, "origin": "manual"},
+            ).to_contract()
+            stored = RecommendationRepository(database_session).add_rating(
+                contract.recommendation_id,
+                contract.schema_version,
+                helpful=contract.helpful,
+                reason=contract.reason,
+                payload=contract.payload,
+            )
+            return _serialize_rating(stored)
+
+    def get_recommendation_rating(
+        self, session_id: str, recommendation_id: str
+    ) -> Optional[Dict[str, Any]]:
+        ratings = self.ratings_for_session(session_id, [recommendation_id])
+        return ratings.get(recommendation_id)
+
+    def ratings_for_session(
+        self, session_id: str, recommendation_ids: Optional[Iterable[str]] = None
+    ) -> Dict[str, Dict[str, Any]]:
+        wanted = {
+            str(recommendation_id)
+            for recommendation_id in (recommendation_ids or [])
+            if recommendation_id
+        }
+        with session_scope(self.factory) as database_session:
+            sessions = SessionRepository(database_session)
+            session_row = sessions.get_by_external_id_any(session_id)
+            if session_row is None:
+                return {}
+            query = (
+                select(models.RecommendationRating)
+                .join(
+                    models.Recommendation,
+                    models.Recommendation.id
+                    == models.RecommendationRating.recommendation_id,
+                )
+                .join(
+                    models.AnalysisRun,
+                    models.AnalysisRun.id == models.Recommendation.analysis_run_id,
+                )
+                .where(models.AnalysisRun.session_id == session_row.id)
+                .order_by(
+                    models.RecommendationRating.created_at.asc(),
+                    models.RecommendationRating.id.asc(),
+                )
+            )
+            if wanted:
+                query = query.where(
+                    models.RecommendationRating.recommendation_id.in_(wanted)
+                )
+            latest: Dict[str, Dict[str, Any]] = {}
+            for row in database_session.scalars(query).all():
+                latest[row.recommendation_id] = _serialize_rating(row)
+            return latest
+
+    def _ensure_session_recommendation(
+        self,
+        database_session,
+        session_id: str,
+        recommendation_id: str,
+    ) -> Optional[models.Recommendation]:
+        sessions = SessionRepository(database_session)
+        session_row = sessions.get_by_external_id_any(session_id)
+        if session_row is None:
+            return None
+        repository = RecommendationRepository(database_session)
+        existing = repository.get(recommendation_id)
+        if existing is not None:
+            run = database_session.get(models.AnalysisRun, existing.analysis_run_id)
+            if run is None or run.session_id != session_row.id:
+                return None
+            return existing
+        run = AnalysisRepository(database_session).latest_for_session(session_row.id)
+        if run is None:
+            return None
+        payload = dict(run.result_payload or {}) if run.result_payload else {}
+        findings = payload.get("findings_all") if isinstance(payload.get("findings_all"), list) else []
+        for recommendation in _collect_recommendation_payloads(
+            payload, [item for item in findings if isinstance(item, Mapping)]
+        ):
+            if str(recommendation.get("recommendation_id")) != recommendation_id:
+                continue
+            return repository.upsert(
+                recommendation_id=recommendation_id,
+                analysis_run_id=run.id,
+                hypothesis=str(
+                    recommendation.get("hypothesis") or "Guarded scenario idea"
+                ),
+                payload=recommendation,
+                section_key=(
+                    str(recommendation.get("section_key"))
+                    if recommendation.get("section_key") is not None
+                    else None
+                ),
+                driver_baseline=(
+                    recommendation.get("driver_baseline")
+                    if isinstance(recommendation.get("driver_baseline"), Mapping)
+                    else {}
+                ),
+            )
+        return None
 
     def get_model_health(self) -> Dict[str, Any]:
         with session_scope(self.factory) as database_session:
@@ -758,6 +885,61 @@ class SQLAlchemyTelemetryStore:
     def _last_bool(cls, frame: pd.DataFrame, column: str) -> Optional[bool]:
         value = cls._last_number(frame, column)
         return bool(int(value)) if value is not None else None
+
+
+def _collect_recommendation_payloads(
+    payload: Mapping[str, Any],
+    findings: List[Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    collected: List[Dict[str, Any]] = []
+    seen = set()
+    ml_context = (
+        dict(payload.get("ml_context") or {})
+        if isinstance(payload.get("ml_context"), Mapping)
+        else {}
+    )
+    candidates: List[Any] = []
+    recommendations = ml_context.get("recommendations")
+    if isinstance(recommendations, list):
+        candidates.extend(recommendations)
+    for finding in findings:
+        recommendation = finding.get("scenario_recommendation")
+        if recommendation is not None:
+            candidates.append(recommendation)
+    for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            continue
+        recommendation_id = candidate.get("recommendation_id")
+        if not recommendation_id or recommendation_id in seen:
+            continue
+        seen.add(recommendation_id)
+        collected.append(dict(candidate))
+    return collected
+
+
+def _serialize_rating(row: models.RecommendationRating) -> Dict[str, Any]:
+    recorded = row.created_at
+    if recorded is not None and recorded.tzinfo is None:
+        recorded = recorded.replace(tzinfo=timezone.utc)
+    recorded_at = (
+        recorded.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        if recorded is not None
+        else datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    )
+    payload = dict(row.payload or {})
+    context = payload.get("context")
+    origin = "manual"
+    if isinstance(context, Mapping) and context.get("origin"):
+        origin = str(context["origin"])
+    return {
+        "recommendation_id": row.recommendation_id,
+        "helpful": row.helpful,
+        "reason": row.reason,
+        "schema_version": row.schema_version or RATING_SCHEMA_VERSION,
+        "training_eligible": False,
+        "origin": origin,
+        "recorded_at_utc": recorded_at,
+    }
 
 
 @lru_cache(maxsize=1)

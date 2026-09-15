@@ -14,6 +14,7 @@ from src.api.models import (
     ExpectedInputProfile,
     ManualConditionUpdateRequest,
     ModelHealthResponse,
+    RecommendationRatingRequest,
 )
 from src.api.routes.laps import get_lap
 from src.api.routes import ml as ml_routes
@@ -56,6 +57,10 @@ class ApiAppTests(unittest.TestCase):
         self.assertIn("/api/sessions/{session_id}/analyze", paths)
         self.assertIn("/api/sessions/{session_id}/analysis", paths)
         self.assertIn("/api/sessions/{session_id}/conditions", paths)
+        self.assertIn(
+            "/api/sessions/{session_id}/recommendations/{recommendation_id}/rating",
+            paths,
+        )
         self.assertIn("/api/ml/model-health", paths)
         self.assertIn("/api/ml/data-health", paths)
 
@@ -74,6 +79,12 @@ class ApiAppTests(unittest.TestCase):
             ManualConditionUpdateRequest(wetness=1.01)
         with self.assertRaises(ValidationError):
             ManualConditionUpdateRequest(track_temp_c=101.0)
+
+    def test_rating_request_trims_reason_and_rejects_overlong_notes(self) -> None:
+        request = RecommendationRatingRequest(helpful=False, reason="  too snappy  ")
+        self.assertEqual(request.normalized_reason(), "too snappy")
+        with self.assertRaises(ValidationError):
+            RecommendationRatingRequest(helpful=True, reason="x" * 256)
 
     def test_expected_profile_model_accepts_nullable_calibrated_bands(self) -> None:
         profile = ExpectedInputProfile(

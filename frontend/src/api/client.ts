@@ -12,6 +12,8 @@ import type {
   ManualConditions,
   ModelHealthResponse,
   ProcessResponse,
+  RecommendationRating,
+  RecommendationRatingRequest,
   SessionAnalysis,
   SessionDetail,
   SessionSummary,
@@ -121,6 +123,25 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(conditions),
     }),
+
+  getRecommendationRating: (sessionId: string, recommendationId: string) =>
+    fetchJson<RecommendationRating>(
+      `/sessions/${sessionId}/recommendations/${recommendationId}/rating`,
+    ),
+
+  rateRecommendation: (
+    sessionId: string,
+    recommendationId: string,
+    rating: RecommendationRatingRequest,
+  ) =>
+    fetchJson<RecommendationRating>(
+      `/sessions/${sessionId}/recommendations/${recommendationId}/rating`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rating),
+      },
+    ),
 
   getModelHealth: () => fetchJson<ModelHealthResponse>("/ml/model-health"),
 

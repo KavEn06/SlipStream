@@ -43,8 +43,8 @@ The routine CI workflow performs the migration round-trip and benchmark smoke on
 - Fixed-seed experiment reproducibility and interval-coverage metric calculation.
 - Scenario section improvement plus whole-lap veto, driver-consistency perturbation scaling, nearby support, ensemble disagreement, uncertainty, and OOD fallback.
 - Exactly seven default detectors; two research detectors require explicit enablement.
-- API condition bounds, expected-band response shape, route registration, display-lap normalization, and fallback health contracts.
-- Frontend expected-band interpolation and manual-condition request shaping.
+- API condition bounds, expected-band response shape, rating persistence, route registration, display-lap normalization, and fallback health contracts.
+- Frontend expected-band interpolation, manual-condition request shaping, and rating request shaping.
 
 ## Promotion Criteria
 
@@ -65,4 +65,4 @@ Manual session conditions override source metadata. Missing values remain absent
 
 ## Feedback Scope
 
-Recommendation IDs, driver-baseline snapshots, versioned outcome/rating contracts, and database tables are compatibility scaffolds. Outcome association is not automated, the frontend has no rating workflow, ratings/outcomes are marked `training_eligible: false`, and there is no live or online retraining. Any future feedback-to-training path requires explicit comparability rules, consent/governance, leakage controls, offline evaluation, and the promotion gates above.
+Recommendation IDs, driver-baseline snapshots, versioned outcome/rating contracts, and database tables are in place. The analysis UI can record a helpful/not-helpful vote with an optional reason. Outcome association is not automated, ratings/outcomes are marked `training_eligible: false`, and there is no live or online retraining. Any future feedback-to-training path requires explicit comparability rules, consent/governance, leakage controls, offline evaluation, and the promotion gates above.

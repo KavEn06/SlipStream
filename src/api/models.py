@@ -253,6 +253,16 @@ class FindingMLContext(BaseModel):
         extra = "allow"
 
 
+class RecommendationRatingResponse(BaseModel):
+    recommendation_id: str
+    helpful: Optional[bool] = None
+    reason: Optional[str] = None
+    schema_version: str = "1.0"
+    training_eligible: bool = False
+    origin: str = "manual"
+    recorded_at_utc: Optional[str] = None
+
+
 class ScenarioRecommendationResponse(BaseModel):
     recommendation_id: str
     section_key: str
@@ -265,6 +275,7 @@ class ScenarioRecommendationResponse(BaseModel):
     abstention_reason: Optional[str] = None
     non_quantified_idea: bool = True
     seconds_saved_claimed: bool = False
+    rating: Optional[RecommendationRatingResponse] = None
 
     class Config:
         extra = "allow"
@@ -333,6 +344,17 @@ class ManualConditionResponse(BaseModel):
     session_id: str
     conditions: Dict[str, Any] = {}
     origin: str = "manual"
+
+
+class RecommendationRatingRequest(BaseModel):
+    helpful: bool
+    reason: Optional[str] = Field(default=None, max_length=255)
+
+    def normalized_reason(self) -> Optional[str]:
+        if self.reason is None:
+            return None
+        trimmed = self.reason.strip()
+        return trimmed or None
 
 
 class ModelMetricHealth(BaseModel):

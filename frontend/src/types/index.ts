@@ -252,7 +252,23 @@ export interface ScenarioRecommendation {
   abstention_reason?: string | null;
   non_quantified_idea: boolean;
   seconds_saved_claimed: false;
+  rating?: RecommendationRating | null;
   [key: string]: unknown;
+}
+
+export interface RecommendationRating {
+  recommendation_id: string;
+  helpful: boolean | null;
+  reason?: string | null;
+  schema_version: string;
+  training_eligible: false;
+  origin: string;
+  recorded_at_utc?: string | null;
+}
+
+export interface RecommendationRatingRequest {
+  helpful: boolean;
+  reason?: string;
 }
 
 export interface MLAnalysisContext {

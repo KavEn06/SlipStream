@@ -8,8 +8,10 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
+from fastapi import HTTPException
+
 from src.api.routes import analysis as analysis_routes
-from src.api.models import ManualConditionUpdateRequest
+from src.api.models import ManualConditionUpdateRequest, RecommendationRatingRequest
 from src.api.services import session_scanner
 
 
@@ -225,6 +227,97 @@ class AnalysisRouteTests(unittest.TestCase):
         self.assertEqual(updated["conditions"]["wetness"], 0.4)
         self.assertEqual(loaded["conditions"]["track_temp_c"], 17.5)
         self.assertEqual(loaded["conditions"]["tyre_wear"], 0.2)
+
+    def test_filesystem_recommendation_rating_round_trip_stays_training_ineligible(self) -> None:
+        session_id = "session_ratings"
+        processed_dir = self.processed_root / session_id
+        processed_dir.mkdir(parents=True)
+        recommendation_id = "rec_fixture_idea"
+        (processed_dir / "session_analysis.json").write_text(
+            json.dumps(
+                {
+                    "analysis_version": "test-analysis",
+                    "session_id": session_id,
+                    "reference_lap_number": 1,
+                    "analyzed_at_utc": "2026-09-15T00:00:00Z",
+                    "ml_context": {
+                        "status": "abstained",
+                        "recommendations": [
+                            {
+                                "recommendation_id": recommendation_id,
+                                "section_key": "section-3",
+                                "feature": "brake_onset",
+                                "hypothesis": "Earlier braking is associated with stronger laps.",
+                                "cue": "Begin braking slightly earlier.",
+                                "learned": True,
+                                "confidence": 0.6,
+                                "non_quantified_idea": True,
+                                "seconds_saved_claimed": False,
+                            }
+                        ],
+                    },
+                    "findings_top": [
+                        {
+                            "finding_id": "finding-rated",
+                            "corner_id": 3,
+                            "lap_number": 1,
+                            "detector": "late_braking",
+                            "severity": "moderate",
+                            "confidence": 0.7,
+                            "time_loss_s": 0.12,
+                            "templated_text": "Late braking",
+                            "scenario_recommendation": {
+                                "recommendation_id": recommendation_id,
+                                "section_key": "section-3",
+                                "feature": "brake_onset",
+                                "hypothesis": "Earlier braking is associated with stronger laps.",
+                                "cue": "Begin braking slightly earlier.",
+                                "learned": True,
+                                "confidence": 0.6,
+                                "non_quantified_idea": True,
+                                "seconds_saved_claimed": False,
+                            },
+                        }
+                    ],
+                    "findings_all": [],
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        with self._patch_data_roots(), patch.object(
+            analysis_routes,
+            "get_default_telemetry_store",
+            return_value=None,
+        ):
+            with self.assertRaises(HTTPException) as get_error:
+                analysis_routes.get_recommendation_rating(session_id, recommendation_id)
+            self.assertEqual(get_error.exception.status_code, 404)
+            stored = analysis_routes.rate_recommendation(
+                session_id,
+                recommendation_id,
+                RecommendationRatingRequest(
+                    helpful=True, reason="  earlier brake felt better  "
+                ),
+            )
+            loaded = analysis_routes.get_recommendation_rating(
+                session_id, recommendation_id
+            )
+            analysis = analysis_routes.get_session_analysis(session_id)
+
+        self.assertEqual(stored["helpful"], True)
+        self.assertEqual(stored["reason"], "earlier brake felt better")
+        self.assertFalse(stored["training_eligible"])
+        self.assertEqual(loaded["recommendation_id"], recommendation_id)
+        self.assertEqual(
+            analysis["findings_top"][0]["scenario_recommendation"]["rating"]["helpful"],
+            True,
+        )
+        self.assertFalse(
+            analysis["ml_context"]["recommendations"][0]["rating"]["training_eligible"]
+        )
+        self.assertTrue((processed_dir / "recommendation_ratings.json").is_file())
 
     def _patch_data_roots(self):
         stack = ExitStack()

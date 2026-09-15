@@ -4,9 +4,11 @@ import type {
   AnalysisFinding,
   CornerDefinition,
   ManualConditions,
+  RecommendationRating,
+  ScenarioRecommendation,
   SessionAnalysis,
 } from "../types";
-import { shapeManualConditionRequest } from "../utils/ml";
+import { shapeManualConditionRequest, shapeRecommendationRatingRequest } from "../utils/ml";
 import { CornerDetailView } from "./CornerDetailView";
 
 interface Props {
@@ -96,9 +98,111 @@ function CompactFindingCard({ finding, selected, onClick }: CompactFindingCardPr
 interface DetailHeaderProps {
   finding: AnalysisFinding;
   cornerDef: CornerDefinition;
+  sessionId: string;
+  onRated: (recommendationId: string, rating: RecommendationRating) => void;
 }
 
-function DetailHeader({ finding, cornerDef }: DetailHeaderProps) {
+function RecommendationRatingControl({
+  sessionId,
+  recommendation,
+  onRated,
+}: {
+  sessionId: string;
+  recommendation: ScenarioRecommendation;
+  onRated: (recommendationId: string, rating: RecommendationRating) => void;
+}) {
+  const [reason, setReason] = useState(recommendation.rating?.reason ?? "");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const selected =
+    recommendation.rating?.helpful === true
+      ? "helpful"
+      : recommendation.rating?.helpful === false
+        ? "not_helpful"
+        : null;
+
+  useEffect(() => {
+    setReason(recommendation.rating?.reason ?? "");
+  }, [recommendation.recommendation_id, recommendation.rating?.reason]);
+
+  const submit = async (helpful: boolean) => {
+    let payload: { helpful: boolean; reason?: string };
+    try {
+      payload = shapeRecommendationRatingRequest({ helpful, reason });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save rating");
+      return;
+    }
+    setSaving(true);
+    setMessage(null);
+    try {
+      const rating = await api.rateRecommendation(
+        sessionId,
+        recommendation.recommendation_id,
+        payload,
+      );
+      onRated(recommendation.recommendation_id, rating);
+      setMessage("Saved. This vote does not retrain the model.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save rating");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t border-accent/15 pt-3">
+      <p className="text-[10px] uppercase tracking-[0.14em] text-text-muted">
+        Was this idea useful?
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void submit(true)}
+          disabled={saving}
+          className={`motion-safe-color h-8 rounded-full border px-3 text-[10px] font-medium uppercase tracking-[0.13em] disabled:opacity-50 ${
+            selected === "helpful"
+              ? "border-success/40 bg-success/15 text-success"
+              : "border-border/70 bg-surface-2/84 text-text-secondary hover:border-border-strong hover:text-text-primary"
+          }`}
+        >
+          Helpful
+        </button>
+        <button
+          type="button"
+          onClick={() => void submit(false)}
+          disabled={saving}
+          className={`motion-safe-color h-8 rounded-full border px-3 text-[10px] font-medium uppercase tracking-[0.13em] disabled:opacity-50 ${
+            selected === "not_helpful"
+              ? "border-danger/40 bg-danger/15 text-danger"
+              : "border-border/70 bg-surface-2/84 text-text-secondary hover:border-border-strong hover:text-text-primary"
+          }`}
+        >
+          Not helpful
+        </button>
+      </div>
+      <label className="mt-2 block">
+        <span className="text-[9px] uppercase tracking-[0.13em] text-text-muted">
+          Optional reason
+        </span>
+        <input
+          type="text"
+          maxLength={255}
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="Optional reason"
+          className="mt-1 h-9 w-full rounded-lg border border-border/70 bg-surface-1/80 px-2.5 text-xs text-text-primary outline-none focus:border-accent/50"
+        />
+      </label>
+      <p className="mt-1.5 text-[10px] text-text-muted">
+        Votes stay on this recommendation. They are not used for training yet.
+      </p>
+      {message && <p className="mt-1 text-[11px] text-text-muted">{message}</p>}
+    </div>
+  );
+}
+
+function DetailHeader({ finding, cornerDef, sessionId, onRated }: DetailHeaderProps) {
   const tone = SEVERITY_TONE[finding.severity] ?? SEVERITY_TONE.minor;
   const learned = finding.ml_context;
   const recommendation = finding.scenario_recommendation;
@@ -170,6 +274,11 @@ function DetailHeader({ finding, cornerDef }: DetailHeaderProps) {
           <p className="mt-1 text-[10px] text-text-muted">
             {recommendation.recommendation_id}
           </p>
+          <RecommendationRatingControl
+            sessionId={sessionId}
+            recommendation={recommendation}
+            onRated={onRated}
+          />
         </div>
       )}
     </div>
@@ -294,6 +403,38 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
     } finally {
       setConditionsSaving(false);
     }
+  };
+
+  const applyRating = (recommendationId: string, rating: RecommendationRating) => {
+    setAnalysis((current) => {
+      if (!current) return current;
+      const patchRecommendation = (
+        recommendation?: ScenarioRecommendation | null,
+      ): ScenarioRecommendation | null | undefined => {
+        if (!recommendation || recommendation.recommendation_id !== recommendationId) {
+          return recommendation;
+        }
+        return { ...recommendation, rating };
+      };
+      const patchFinding = (finding: AnalysisFinding): AnalysisFinding => ({
+        ...finding,
+        scenario_recommendation:
+          patchRecommendation(finding.scenario_recommendation) ??
+          finding.scenario_recommendation,
+      });
+      return {
+        ...current,
+        findings_top: current.findings_top.map(patchFinding),
+        findings_all: current.findings_all.map(patchFinding),
+        ml_context: {
+          ...current.ml_context,
+          recommendations: current.ml_context.recommendations.map(
+            (recommendation) =>
+              patchRecommendation(recommendation) ?? recommendation,
+          ),
+        },
+      };
+    });
   };
 
   if (!enabled) {
@@ -475,7 +616,12 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
             )}
             {selectedFinding && selectedCornerDef && analysis.reference_length_m ? (
               <div className="rounded-2xl border border-border/60 bg-surface-2/50 p-4">
-                <DetailHeader finding={selectedFinding} cornerDef={selectedCornerDef} />
+                <DetailHeader
+                  finding={selectedFinding}
+                  cornerDef={selectedCornerDef}
+                  sessionId={sessionId}
+                  onRated={applyRating}
+                />
                 <CornerDetailView
                   finding={selectedFinding}
                   cornerDef={selectedCornerDef}

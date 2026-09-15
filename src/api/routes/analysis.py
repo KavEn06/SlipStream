@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Mapping, Optional
 
 from fastapi import APIRouter, HTTPException
 
@@ -26,6 +27,8 @@ from src.api.models import (
     AnalyzeSessionResponse,
     ManualConditionResponse,
     ManualConditionUpdateRequest,
+    RecommendationRatingRequest,
+    RecommendationRatingResponse,
     SessionAnalysisResponse,
 )
 from src.api.services import session_scanner
@@ -35,10 +38,12 @@ from src.analysis.session_analysis import (
     run,
 )
 from src.core.config import PROCESSED_DATA_ROOT
+from src.ml.feedback import RATING_SCHEMA_VERSION
 from src.services.telemetry_store import get_default_telemetry_store
 
 
 router = APIRouter(prefix="/api/sessions", tags=["analysis"])
+RATINGS_ARTIFACT_FILENAME = "recommendation_ratings.json"
 
 
 def _map_display_lap_number(value: object, stored_to_display: dict[int, int]) -> object:
@@ -287,6 +292,7 @@ def get_session_analysis(session_id: str):
         database_payload = None
     if database_payload is not None:
         normalized_payload = _normalize_analysis_payload_for_output(session_id, database_payload)
+        _attach_recommendation_ratings(session_id, normalized_payload, datastore)
         normalized_payload["track_outline"] = session_scanner.get_track_outline(session_id)
         return normalized_payload
 
@@ -309,6 +315,7 @@ def get_session_analysis(session_id: str):
             detail="Analysis artifact has an unexpected top-level shape",
         )
     normalized_payload = _normalize_analysis_payload_for_output(session_id, payload)
+    _attach_recommendation_ratings(session_id, normalized_payload, datastore)
     normalized_payload["track_outline"] = session_scanner.get_track_outline(session_id)
     return normalized_payload
 
@@ -400,3 +407,201 @@ def update_session_conditions(
         "conditions": conditions,
         "origin": "manual",
     }
+
+
+@router.get(
+    "/{session_id}/recommendations/{recommendation_id}/rating",
+    response_model=RecommendationRatingResponse,
+)
+def get_recommendation_rating(session_id: str, recommendation_id: str):
+    if not _session_has_recommendation(session_id, recommendation_id):
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+    datastore = get_default_telemetry_store()
+    if datastore is not None:
+        try:
+            stored = datastore.get_recommendation_rating(session_id, recommendation_id)
+        except Exception:
+            stored = None
+        if stored is not None:
+            return stored
+    stored = _load_filesystem_ratings(session_id).get(recommendation_id)
+    if stored is None:
+        raise HTTPException(status_code=404, detail="Rating not found")
+    return stored
+
+
+@router.post(
+    "/{session_id}/recommendations/{recommendation_id}/rating",
+    response_model=RecommendationRatingResponse,
+)
+def rate_recommendation(
+    session_id: str,
+    recommendation_id: str,
+    request: RecommendationRatingRequest,
+):
+    if not _session_has_recommendation(session_id, recommendation_id):
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+    datastore = get_default_telemetry_store()
+    if datastore is not None:
+        try:
+            stored = datastore.rate_recommendation(
+                session_id,
+                recommendation_id,
+                helpful=bool(request.helpful),
+                reason=request.normalized_reason(),
+            )
+        except Exception:
+            stored = None
+        if stored is not None:
+            return stored
+    return _write_filesystem_rating(
+        session_id,
+        recommendation_id,
+        helpful=bool(request.helpful),
+        reason=request.normalized_reason(),
+    )
+
+
+def _utc_now() -> str:
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def _iter_recommendation_dicts(payload: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    collected: List[Dict[str, Any]] = []
+    ml_context = payload.get("ml_context")
+    if isinstance(ml_context, dict):
+        recommendations = ml_context.get("recommendations")
+        if isinstance(recommendations, list):
+            collected.extend(
+                item for item in recommendations if isinstance(item, dict)
+            )
+    for findings_key in ("findings_top", "findings_all"):
+        findings = payload.get(findings_key)
+        if not isinstance(findings, list):
+            continue
+        for finding in findings:
+            if not isinstance(finding, dict):
+                continue
+            recommendation = finding.get("scenario_recommendation")
+            if isinstance(recommendation, dict):
+                collected.append(recommendation)
+    return collected
+
+
+def _recommendation_ids(payload: Mapping[str, Any]) -> List[str]:
+    ids: List[str] = []
+    seen = set()
+    for recommendation in _iter_recommendation_dicts(payload):
+        recommendation_id = recommendation.get("recommendation_id")
+        if not recommendation_id or recommendation_id in seen:
+            continue
+        seen.add(str(recommendation_id))
+        ids.append(str(recommendation_id))
+    return ids
+
+
+def _load_analysis_payload(session_id: str) -> Optional[Dict[str, Any]]:
+    datastore = get_default_telemetry_store()
+    if datastore is not None:
+        try:
+            payload = datastore.get_latest_analysis(session_id)
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            return payload
+    artifact = PROCESSED_DATA_ROOT / session_id / ANALYSIS_ARTIFACT_FILENAME
+    if not artifact.is_file():
+        return None
+    try:
+        payload = json.loads(artifact.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _session_has_recommendation(session_id: str, recommendation_id: str) -> bool:
+    payload = _load_analysis_payload(session_id)
+    if payload is None:
+        return False
+    return recommendation_id in _recommendation_ids(payload)
+
+
+def _load_filesystem_ratings(session_id: str) -> Dict[str, Dict[str, Any]]:
+    path = PROCESSED_DATA_ROOT / session_id / RATINGS_ARTIFACT_FILENAME
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    ratings: Dict[str, Dict[str, Any]] = {}
+    for recommendation_id, rating in payload.items():
+        if isinstance(rating, dict):
+            ratings[str(recommendation_id)] = dict(rating)
+    return ratings
+
+
+def _write_filesystem_rating(
+    session_id: str,
+    recommendation_id: str,
+    helpful: bool,
+    reason: Optional[str],
+) -> Dict[str, Any]:
+    session_dir = PROCESSED_DATA_ROOT / session_id
+    if not session_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Processed session not found")
+    ratings = _load_filesystem_ratings(session_id)
+    stored = {
+        "recommendation_id": recommendation_id,
+        "helpful": helpful,
+        "reason": reason,
+        "schema_version": RATING_SCHEMA_VERSION,
+        "training_eligible": False,
+        "origin": "manual",
+        "recorded_at_utc": _utc_now(),
+    }
+    ratings[recommendation_id] = stored
+    try:
+        (session_dir / RATINGS_ARTIFACT_FILENAME).write_text(
+            json.dumps(ratings, indent=2),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not persist recommendation rating",
+        ) from exc
+    return stored
+
+
+def _attach_recommendation_ratings(
+    session_id: str,
+    payload: Dict[str, Any],
+    datastore: Any,
+) -> None:
+    recommendation_ids = _recommendation_ids(payload)
+    ratings: Dict[str, Dict[str, Any]] = {}
+    filesystem = _load_filesystem_ratings(session_id)
+    ratings.update(filesystem)
+    if datastore is not None and recommendation_ids:
+        try:
+            ratings.update(
+                datastore.ratings_for_session(session_id, recommendation_ids)
+            )
+        except Exception:
+            pass
+    for recommendation in _iter_recommendation_dicts(payload):
+        recommendation_id = recommendation.get("recommendation_id")
+        if not recommendation_id:
+            continue
+        rating = ratings.get(str(recommendation_id))
+        if rating is not None:
+            recommendation["rating"] = dict(rating)
+            recommendation["rating"]["training_eligible"] = False

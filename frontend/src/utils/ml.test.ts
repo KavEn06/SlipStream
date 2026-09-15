@@ -3,6 +3,7 @@ import type { ExpectedInputProfile } from "../types";
 import {
   interpolateExpectedMetric,
   shapeManualConditionRequest,
+  shapeRecommendationRatingRequest,
 } from "./ml";
 
 const profile: ExpectedInputProfile = {
@@ -62,5 +63,28 @@ describe("manual condition request shaping", () => {
     expect(() => shapeManualConditionRequest({ tyre_wear: "1.1" })).toThrow(
       "tyre_wear must be between 0 and 1.",
     );
+  });
+});
+
+describe("recommendation rating request shaping", () => {
+  it("omits a blank reason and keeps a trimmed optional note", () => {
+    expect(shapeRecommendationRatingRequest({ helpful: true, reason: "  " })).toEqual({
+      helpful: true,
+    });
+    expect(
+      shapeRecommendationRatingRequest({
+        helpful: false,
+        reason: "  too abrupt  ",
+      }),
+    ).toEqual({ helpful: false, reason: "too abrupt" });
+  });
+
+  it("rejects reasons longer than the contract", () => {
+    expect(() =>
+      shapeRecommendationRatingRequest({
+        helpful: true,
+        reason: "x".repeat(256),
+      }),
+    ).toThrow("Keep the reason under 255 characters.");
   });
 });

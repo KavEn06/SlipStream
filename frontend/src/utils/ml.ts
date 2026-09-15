@@ -79,3 +79,17 @@ export function shapeManualConditionRequest(
   }
   return supplied;
 }
+
+export function shapeRecommendationRatingRequest(input: {
+  helpful: boolean;
+  reason?: string;
+}): { helpful: boolean; reason?: string } {
+  const trimmed = input.reason?.trim() ?? "";
+  if (trimmed.length > 255) {
+    throw new Error("Keep the reason under 255 characters.");
+  }
+  if (!trimmed) {
+    return { helpful: input.helpful };
+  }
+  return { helpful: input.helpful, reason: trimmed };
+}

@@ -724,6 +724,22 @@ class RecommendationRepository:
         self.session.flush()
         return row
 
+    def get(self, recommendation_id: str) -> Optional[models.Recommendation]:
+        return self.session.get(models.Recommendation, recommendation_id)
+
+    def latest_rating(
+        self, recommendation_id: str
+    ) -> Optional[models.RecommendationRating]:
+        return self.session.scalar(
+            select(models.RecommendationRating)
+            .where(models.RecommendationRating.recommendation_id == recommendation_id)
+            .order_by(
+                models.RecommendationRating.created_at.desc(),
+                models.RecommendationRating.id.desc(),
+            )
+            .limit(1)
+        )
+
     def add_outcome(
         self, recommendation_id: str, schema_version: str, payload: Mapping[str, Any]
     ) -> models.RecommendationOutcome:

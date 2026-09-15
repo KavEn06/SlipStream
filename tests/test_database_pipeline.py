@@ -279,6 +279,49 @@ class DatabasePipelineTests(unittest.TestCase):
             model_health["fallback_reasons"],
         )
 
+    def test_recommendation_ratings_persist_without_enabling_training(self) -> None:
+        self._process_from_database()
+        recommendation_id = "rec_db_idea"
+        run_id = self.store.persist_analysis(
+            self.session_id,
+            "fixture-analysis",
+            {
+                "session_id": self.session_id,
+                "detector_configuration": {"active_detector_count": 7},
+                "ml_context": {
+                    "status": "unavailable",
+                    "recommendations": [
+                        {
+                            "recommendation_id": recommendation_id,
+                            "section_key": "section-1",
+                            "feature": "throttle_pickup",
+                            "hypothesis": "Earlier throttle pickup is associated with stronger laps.",
+                            "cue": "Begin throttle pickup slightly earlier.",
+                            "learned": True,
+                            "confidence": 0.55,
+                            "driver_baseline": {"throttle_pickup": 0.42},
+                        }
+                    ],
+                },
+            },
+            [],
+        )
+        self.assertGreater(run_id, 0)
+        stored = self.store.rate_recommendation(
+            self.session_id,
+            recommendation_id,
+            helpful=False,
+            reason="too aggressive",
+        )
+        self.assertIsNotNone(stored)
+        assert stored is not None
+        self.assertEqual(stored["helpful"], False)
+        self.assertEqual(stored["reason"], "too aggressive")
+        self.assertFalse(stored["training_eligible"])
+        loaded = self.store.get_recommendation_rating(self.session_id, recommendation_id)
+        self.assertEqual(loaded["recommendation_id"], recommendation_id)
+        self.assertFalse(loaded["training_eligible"])
+
 
 if __name__ == "__main__":
     unittest.main()
