@@ -1,168 +1,205 @@
 # SlipStream
 
-SlipStream is a telemetry-first racing coach for Forza telemetry.
+**A telemetry-first driving coach for sim racing.** SlipStream captures live Forza telemetry, imports real Assetto Corsa datasets, stores everything in PostgreSQL, and turns each lap into ranked, corner-by-corner coaching with measured time loss.
 
-The core idea is:
+[![Verification](https://github.com/KavEn06/SlipStream/actions/workflows/verification.yml/badge.svg)](https://github.com/KavEn06/SlipStream/actions/workflows/verification.yml)
+![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
+![React](https://img.shields.io/badge/React_19-20232A?logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-357_backend_%2B_6_frontend-2ea44f)
 
-`telemetry -> measurable driving behavior -> time-loss analysis -> structured findings`
+![Session analysis: a late-braking finding at T11, ranked by seconds lost, with a track overlay](docs/screenshots/analysis.png)
 
-The system is built as an engineering-driven pipeline first. Any future AI or ML layer should explain or extend findings that already come from telemetry analysis rather than replacing it.
+Most sim-racing tools show graphs and leave the reading to you. SlipStream does the reading: it reconstructs laps, finds corners, compares them to your best lap, and explains where time was lost in plain English.
 
-The persistence and ingestion foundation is simulator-neutral: native Assetto Corsa and Forza samples use the same SQLAlchemy repositories. Processing, analysis, and session API reads prefer database records when a session exists there, while retaining filesystem fallback for old artifacts and fresh file-only installs. CSV and JSON files remain compatible derived exports.
+```
+live UDP / Parquet  →  canonical laps  →  corner segmentation  →  7 detectors  →  ranked findings  →  React UI
+```
+
+---
+
+## At a glance
+
+| | |
+|---|---|
+| **Product** | Capture, process, compare, and coach from real telemetry |
+| **Stack** | Python, FastAPI, PostgreSQL, SQLAlchemy 2, React 19, TypeScript, scikit-learn, PyTorch |
+| **Tests** | 357 backend tests, 6 frontend tests, strict TypeScript, production build |
+| **CI** | GitHub Actions with a real PostgreSQL service, migration round-trip, and frontend typecheck/build |
+| **Scale** | 260,031 real 100 Hz rows pinned from Hugging Face; 500,001-row ingest in 37.8 s (13,242 rows/s) |
+| **ML stance** | Optional, leakage-safe, observational. Never overrides a measured delta |
+
+**What this repo is meant to show:** a full ingest-to-UI data product, not a notebook. Deterministic analysis is the source of truth. Learned bands and scenario ideas are labelled, gated, and optional.
+
+---
+
+## Product tour
+
+Screenshots below are from a real Interlagos (Rio de Janeiro) Forza session running locally.
+
+### Dashboard
+
+Live capture controls and recent sessions. Capture runs as a managed subprocess so the UI stays responsive while UDP packets stream in.
+
+![Dashboard with capture controls and latest sessions](docs/screenshots/home.png)
+
+### Session library
+
+Search, status filters, and one-click **Process** or **Analyze**. Sessions prefer PostgreSQL and fall back to on-disk artifacts.
+
+![Session library with search, filters, and process/analyze actions](docs/screenshots/sessions.png)
+
+### Session detail
+
+Per-lap times, validity, and raw vs processed status. Lap numbers are normalized so zero-indexed captures and one-indexed imports look the same.
+
+![Session detail with five valid processed laps](docs/screenshots/session-detail.png)
+
+### Lap review
+
+An interactive track map with automatically detected corners (entry / center / exit colour-coded), plus speed, throttle, brake, and steering for the whole lap.
+
+![Lap review track map with fourteen detected corners](docs/screenshots/lap-review.png)
+
+![Speed, throttle, brake, and steering traces for a single lap](docs/screenshots/lap-review-charts.png)
+
+### Multi-lap comparison
+
+Overlay up to six same-track laps, from one session or several, on shared track progress or elapsed time. Pick any lap as the reference.
+
+![Lap comparison setup with two selected laps](docs/screenshots/lap-compare.png)
+
+![Two-lap track overlay and speed traces](docs/screenshots/lap-compare-charts.png)
+
+### Corner analysis
+
+The coaching view. Findings are ranked by time lost, each with severity, confidence, and a templated explanation. Selecting one zooms the overlay to that corner and plots the driver's inputs against the reference lap.
+
+If a trained champion is registered, expected-input bands are drawn here too. Each scenario idea can be rated helpful or not helpful; votes are stored and are **not** used for training.
+
+![Corner detail: late braking at T11 with overlay and input traces vs the reference lap](docs/screenshots/analysis-corner-detail.png)
+
+---
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-forzaUdp[ForzaUDPTelemetry] --> rawLogger[RawLapLogger]
-rawLogger --> rawStore[RawLapCSVs + SessionMetadata]
-rawStore --> canonicalBuilder[CanonicalLapProcessing]
-canonicalBuilder --> processedStore[ProcessedLapStore]
-processedStore --> cornerRecords[CornerRecordExtraction]
-cornerRecords --> baselines[PerCornerBaselines]
-baselines --> detectors[SevenDetectors]
-detectors --> findings[RankedFindings]
-findings --> api[FastAPI]
-api --> frontend[React UI]
+  forza["Forza UDP"] --> adapters["Simulator adapters"]
+  hf["Hugging Face Parquet<br/>Assetto Corsa, 100 Hz"] --> adapters
+  adapters --> pg[("PostgreSQL<br/>SQLAlchemy 2 + Alembic")]
+  pg --> processing["Canonical laps"]
+  processing --> exports["CSV / JSON exports"]
+  processing --> segmentation["Corner segmentation"]
+  segmentation --> detectors["Seven detectors"]
+  detectors --> findings["Ranked findings"]
+  pg --> ml["sklearn + PyTorch"]
+  ml -.->|"advisory only"| detectors
+  findings --> api["FastAPI"]
+  api --> ui["React + TypeScript"]
 ```
 
-## Pipeline Stages
+- **Simulator-neutral contract.** Forza and Assetto Corsa map onto one versioned schema before storage. Native sample rates are kept.
+- **Database first, files as exports.** PostgreSQL in development/production; SQLite in tests with no services. CSV/JSON still write so older tooling keeps working.
+- **Idempotent writes.** Imports use bounded, set-based `INSERT ... ON CONFLICT` upserts. Re-running a command is safe.
+- **Deterministic core.** Every finding traces to a measured delta on aligned telemetry. Learned output is labelled and gated.
 
-### Ingest
-- Raw Forza UDP capture into per-lap CSV files
-- Session metadata with track enrichment from `TrackOrdinal`
+---
 
-### Processing
-- Canonical processed lap generation with distance alignment and resampling
-- Track segmentation into corner and straight definitions
-- Derived telemetry features: longitudinal acceleration, throttle/brake rates, steering rate/smoothness, coasting flags
+## How coaching is produced
 
-### Analysis
-- Corner record extraction per lap
-- Per-corner baselines built from the reference (best) lap
-- Seven detectors run against each corner record against its baseline
-- Findings pipeline: confidence scoring, severity classification, templated text, mutual suppression, per-corner and session caps
+**1. Canonical processed laps.** Raw samples become a fixed schema: timing, path alignment (`NormalizedDistance`), core signals, and derived features (longitudinal acceleration, input rates, steering smoothness, coasting). Each lap is validated (`LapIsValid`).
 
-### API
-- FastAPI backend serving sessions, laps, lap comparison, telemetry capture, and analysis results
+**2. Corner segmentation.** Corners come from curvature, speed, and steering on the reference lap, then split into entry, center, and exit. Compound corners get sub-apexes. The same segmentation is reused for every lap in the session.
 
-### Frontend
-- React + TypeScript UI with pages for session library, session detail, lap review, lap comparison, and corner analysis
-
-## Detectors
+**3. Seven detectors**
 
 | Detector | What it catches |
 |---|---|
-| `early_braking` | Braking started earlier than the reference lap |
+| `early_braking` | Braking started earlier than the reference |
 | `late_braking` | Braking started later, costing apex and exit speed |
-| `trail_brake_past_apex` | Brake overlap past the apex distance |
-| `over_slow_mid_corner` | Mid-corner speed significantly below baseline |
-| `exit_phase_loss` | Late throttle application on exit |
-| `weak_exit` | Below-baseline exit speed fraction |
-| `steering_instability` | Excess steering correction in the corner |
+| `trail_brake_past_apex` | Brake still applied past the apex |
+| `over_slow_mid_corner` | Minimum speed well below the baseline |
+| `exit_phase_loss` | Late throttle on exit |
+| `weak_exit` | Below-baseline exit speed |
+| `steering_instability` | Excess steering corrections |
 
-These seven are the complete default detector set. Two research detectors,
-`abrupt_brake_release` and `long_coasting_phase`, are excluded from default
-runs and counts. Enable them explicitly per analysis request or with
-`SLIPSTREAM_EXPERIMENTAL_DETECTORS=true`.
+Two research detectors, `abrupt_brake_release` and `long_coasting_phase`, sit behind `SLIPSTREAM_EXPERIMENTAL_DETECTORS=true` and are excluded from default counts.
 
-## Findings Pipeline
+**4. Findings pipeline**
 
-1. **Confidence scoring** — `pattern_strength` combined with cost-significance and alignment-quality sub-scores into `[0, 1]`
-2. **Confidence gate** — hits below `CONFIDENCE_MIN` are dropped
-3. **Severity classification** — binned from `time_loss_s` into minor / moderate / major
-4. **Templated text** — deterministic per detector
-5. **Mutual suppression** — `over_slow_mid` suppressed when `trail_brake_past_apex` fires on the same corner/lap; `exit_phase_loss` suppressed when `over_slow_mid` has a larger time loss
-6. **Per-corner cap** — top N findings per corner by ranking key
-7. **Session cap** — top findings surfaced as `findings_top`; the rest go to `findings_all`
+1. Confidence combines pattern strength, cost, and alignment quality; hits below `0.35` drop.
+2. Severity bins measured `time_loss_s` into minor / moderate / major.
+3. Text is templated per detector, so the same telemetry always produces the same sentence.
+4. Mutual suppression removes redundant hits (for example over-slowing when trail-braking already explains the corner).
+5. Caps keep at most two findings per corner; the top set is `findings_top`.
+6. Reconciliation checks that corner and straight deltas sum to the actual lap-time delta. A mismatch fails the run instead of shipping bad numbers.
 
-## Repository Layout
+---
 
-```
-src/
-  ingest/
-    datacollector.py        UDP capture, raw lap logging, session metadata
-    raceplots.py            debug plots for raw and processed laps
-  processing/
-    distance.py             canonical processed-lap builder and feature engineering
-    alignment.py            lap resampling and alignment helpers
-    segmentation.py         corner and straight definitions from track data
-    validation.py           lap validation utilities
-  analysis/
-    session_analysis.py     session-level orchestrator, writes session_analysis.json
-    corner_records.py       CornerRecord and StraightRecord extraction
-    baselines.py            per-corner baseline construction from the reference lap
-    detectors.py            seven pure-function detectors
-    findings.py             confidence scoring, suppression, ranking, Finding/FindingSet
-    templates.py            deterministic text templates for each detector
-    constants.py            all tunable thresholds in one place
-  core/
-    config.py               paths and environment config
-    constants.py            shared signal constants
-    schemas.py              shared dataclasses and column names
-    tracks.py               TrackOrdinal lookup table
-  api/
-    app.py                  FastAPI app with CORS and gzip
-    models.py               API request/response models
-    routes/
-      sessions.py           session listing and metadata
-      laps.py               lap retrieval and processed lap data
-      compare.py            multi-lap comparison endpoint
-      capture.py            live capture start/stop
-      analysis.py           session analysis results
-    services/
-      session_scanner.py    scans processed data directory for sessions
-      capture_manager.py    manages the UDP capture subprocess
-frontend/
-  src/
-    pages/                  HomePage, SessionsPage, SessionDetailPage,
-                            LapReviewPage, LapComparePage, AnalysisPage
-    components/             LapChart, MultiLapChart, TrackMap, CompareTrackMap,
-                            CornerAnalysisPanel, CornerDetailView, AppNavigation,
-                            Layout, StatusBadge, SessionLibraryRow, AppearanceDrawer
-    api/                    typed API client
-    hooks/                  data-fetching hooks
-    types/                  shared TypeScript types
-    utils/                  helpers
-run_phase1_review.py        choose a raw lap, process it, open debug plots
-tests/                      fixture-based coverage for ingest, processing, and analysis
-```
+## Data and machine learning
 
-## Canonical Processed Lap
+### Real telemetry
 
-Processed laps are the single source of truth for downstream analysis.
+Three Assetto Corsa datasets are pinned to immutable Hugging Face revisions in [`src/ingest/manifests.py`](src/ingest/manifests.py): Spa-Francorchamps, Nürburgring GP, and Imola. Together they are **260,031 native rows at 100 Hz**. Upstream lap counters are unusable, so laps are reconstructed from start/finish crossings with duration gates. Ambiguous ranges are rejected. Details: [`docs/data-sources.md`](docs/data-sources.md).
 
-Fields include:
+### Leakage-safe training
 
-- **Sample timing**: `TimestampMS`, `ElapsedTimeS`, `DeltaTimeS`
-- **Path alignment**: `CumulativeDistanceM`, `NormalizedDistance`
-- **Core signals**: speed, RPM, throttle, brake, steering, gear, power, torque, boost, position
-- **Derived signals**: longitudinal acceleration, throttle/brake rates, steering rate, steering smoothness, coasting flags
-- **Lap-level fields**: `LapTimeS`, `LapIsValid`
+Each accepted whole lap is resampled onto a fixed progress grid. Splits are grouped by lap and session so adjacent rows never land on both sides of a train/validation cut. An immutable holdout is reserved before any search.
 
-## Persistence and ML Architecture
+### Two model families
 
-Native simulator samples are mapped into a versioned canonical contract, stored at their original rate, reconstructed into complete laps, processed into aligned features, and then consumed by deterministic analysis. SQLAlchemy repositories use bounded, set-based PostgreSQL/SQLite upserts. CSV/JSON artifacts remain compatible exports and filesystem fallbacks.
+- **scikit-learn random forest** with residual-quantile calibration for expected throttle, brake, steering, and speed bands, plus section and lap pace.
+- **Compact PyTorch sequence model** with expected-input, section-time, lap-time, and pairwise ranking heads.
 
-The optional ML path builds whole-lap sample, section, and lap views. Session-grouped splits keep every row from one lap/session on one side of a split. A checksummed registry champion may add calibrated expected-input bands and guarded scenario ideas. It cannot replace measured time loss, detector gates, or lap-delta reconciliation.
+An offline runner does grouped cross-validation with fixed seeds, scores candidates with a declared composite metric, and registers artifacts with SHA-256 checksums. The registry exposes one **champion** and keeps challengers.
 
-## Setup
+### Guarded scenario ideas
 
-Backend with the default no-service SQLite database (`data/slipstream.db`):
+The scorer perturbs one driver-actionable feature (brake onset, min speed, throttle pickup, coasting, steering) within a bound scaled to that driver's consistency. An idea is shown only if every model family predicts a section improvement, the whole-lap prediction does not regress, nearby support is sufficient, the families agree, and uncertainty is bounded. Wet, cold, or high-wear conditions abstain and fall back to a labelled conservative cue.
+
+Every idea has a recommendation ID, model version, hypothesis, and driver baseline. UI ratings stay `training_eligible: false`.
+
+---
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Language | Python 3.9+ (CI on 3.12), TypeScript |
+| API | FastAPI, Uvicorn, Pydantic |
+| Data | pandas, NumPy, PyArrow |
+| Storage | PostgreSQL 16, SQLite for tests, SQLAlchemy 2, Alembic, psycopg 3 |
+| ML | scikit-learn, PyTorch, joblib |
+| Ingest | Forza UDP, Hugging Face Hub |
+| Frontend | React 19, Vite, Tailwind CSS 4, Recharts, React Router |
+| Tests / CI | unittest, Vitest, GitHub Actions + PostgreSQL service |
+| Local infra | Docker Compose |
+
+---
+
+## Quick start
+
+**Needs:** Python 3.9+, Node 22+. Docker is optional (PostgreSQL).
+
+Backend, SQLite, no extra services:
 
 ```bash
 python3 -m pip install -r requirements.txt
 python3 -m alembic upgrade head
-python3 -m alembic check
+uvicorn src.api.app:app --reload --port 8000
 ```
 
-PostgreSQL:
+Backend with PostgreSQL:
 
 ```bash
 cp .env.example .env
 docker compose up -d postgres
 export DATABASE_URL=postgresql+psycopg://slipstream:slipstream@localhost:5432/slipstream
 python3 -m alembic upgrade head
+uvicorn src.api.app:app --reload --port 8000
 ```
 
 Frontend:
@@ -173,84 +210,112 @@ npm ci
 npm run dev
 ```
 
-`SLIPSTREAM_DATA_ROOT`, `SLIPSTREAM_MODEL_ROOT`, `SLIPSTREAM_CACHE_ROOT`, and `SLIPSTREAM_IMPORT_BATCH_SIZE` configure artifacts, models, downloads, and bounded writes.
+Open the Vite URL. `/api` is proxied to port 8000.
 
-## Data Sources and Truthful Counts
+Then get laps in:
 
-The three manifests in `src/ingest/manifests.py` pin immutable upstream revisions totaling **exactly 260,031 native source rows at a declared 100 Hz before filtering**. That is a source-row count, not 260,031 independent laps, training examples, or retained processed rows. Complete laps are reconstructed from directed start/finish crossings; partial, ambiguous, invalid, or unsupported ranges remain unassigned or are filtered. The effective lap count is therefore separate and can be much smaller.
+- **Live Forza:** enable UDP data-out, press **Start Capture** on the dashboard.
+- **Assetto Corsa:** `python3 -m src.ingest.huggingface_importer spa`
+- **Existing CSVs:** drop them under `data/raw/<session_id>/` and run the artifact importer.
 
-The synthetic capacity benchmark is also separate. Its default workload generates **500,001** deterministic native samples to exercise bounded ingestion and indexed querying. It is not imported upstream data and is not evidence that a network import ran. See [source attribution and revisions](docs/data-sources.md).
+Open **Sessions**, choose the session, click **Process**, then **Analyze**.
 
-## Commands
+Settings live in [`.env.example`](.env.example): `DATABASE_URL`, `SLIPSTREAM_DATA_ROOT`, `SLIPSTREAM_MODEL_ROOT`, `SLIPSTREAM_CACHE_ROOT`, `SLIPSTREAM_IMPORT_BATCH_SIZE`, `SLIPSTREAM_EXPERIMENTAL_DETECTORS`.
 
-Capture and persist completed Forza laps:
+---
+
+## Everyday commands
 
 ```bash
+# Live Forza capture (add --no-database for files only)
 python3 src/ingest/datacollector.py --ip 127.0.0.1 --port 5300
-```
 
-Use `--no-database` for explicit file-only capture.
-
-Import pinned sources (these commands perform network downloads unless `--parquet` points to a local file):
-
-```bash
-python3 -m src.ingest.huggingface_importer spa
-python3 -m src.ingest.huggingface_importer nurburgring_gp
-python3 -m src.ingest.huggingface_importer imola
+# Pinned Assetto Corsa imports (network unless --parquet is a local file)
 python3 -m src.ingest.huggingface_importer all
-```
 
-Import existing artifacts, migrate, process, train, and inspect the champion:
-
-```bash
-python3 -m alembic upgrade head
+# Existing on-disk sessions
 python3 -m src.ingest.artifact_importer --raw-root data/raw --processed-root data/processed
-python3 src/processing/distance.py data/raw/session_20260316_120000
+python3 src/processing/distance.py data/raw/<session_id>
+python3 -m src.analysis.session_analysis <session_id>
+
+# Train / inspect models
 python3 -m src.ml dataset-summary
-python3 -m src.ml train --no-torch --seed 1729
+python3 -m src.ml train --seed 1729        # add --no-torch to skip PyTorch
 python3 -m src.ml champion
-```
 
-Analyze and inspect health:
-
-```bash
-python3 -m src.analysis.session_analysis session_20260316_120000
-uvicorn src.api.app:app --reload --port 8000
-curl -X POST http://localhost:8000/api/sessions/session_20260316_120000/analyze
+# Health
 curl http://localhost:8000/api/ml/data-health
 curl http://localhost:8000/api/ml/model-health
-```
 
-Run the default capacity benchmark or the fast development smoke:
-
-```bash
+# Capacity (default 500,001 rows; second form is a smoke)
 python3 -m src.benchmarks.bulk_ingest
-python3 -m src.benchmarks.bulk_ingest --rows 5000 --batch-size 500 \
-  --report data/benchmarks/smoke.json
+python3 -m src.benchmarks.bulk_ingest --rows 5000 --batch-size 500 --report data/benchmarks/smoke.json
 ```
 
-Reports contain measured elapsed time, throughput, inserted/updated/stored row counts, query timings, and the database `EXPLAIN` plan. Routine CI runs only a small PostgreSQL smoke workload; it does not run the 500,001-row default.
+The recorded 500,001-row run is in [`data/benchmarks/postgres-500001.json`](data/benchmarks/postgres-500001.json), including the `EXPLAIN` plan (indexed range query **6.1 ms** on `ix_raw_session_lap_time`).
 
-## Verification
+---
+
+## Testing and CI
 
 ```bash
-python3 -m alembic upgrade head
-python3 -m alembic check
+python3 -m alembic upgrade head && python3 -m alembic check
 python3 -m unittest discover -s tests -v
-python3 -m src.benchmarks.bulk_ingest --rows 5000 --report data/benchmarks/smoke.json
 python3 -m compileall -q src tests migrations
-cd frontend
-npm test
-npm run typecheck
-npm run build
+cd frontend && npm test && npm run typecheck && npm run build
 ```
 
-Fixture tests are generated locally. Network downloads are not part of the default suite; any network validation must be explicitly opt-in and skipped by default. CI provisions PostgreSQL, performs a migration round-trip, runs backend integration tests and a benchmark smoke, then tests, typechecks, and builds the frontend.
+The suite covers migration parity, idempotent upserts, lap reconstruction, grouped-split leakage, scenario vetoes, detector gating, rating persistence, and frontend request shaping. Fixtures are generated locally. Network downloads are not in the default suite.
 
-## Interpretation and Feedback Limits
+CI ([`.github/workflows/verification.yml`](.github/workflows/verification.yml)) provisions PostgreSQL 16, runs a migration round-trip, the backend suite, a benchmark smoke, then frontend test / typecheck / build.
 
-SlipStream reports observational associations, not causal effects. Expected bands summarize learned patterns in comparable telemetry; scenario perturbations are bounded hypotheses and never promise seconds saved. Known out-of-distribution conditions (including wetness, high tyre wear, cold track, model-declared exclusions, low support, disagreement, or high uncertainty) suppress learned specifics and may produce a deterministic conservative fallback. Manual session conditions override imported metadata. Missing condition fields are retained as missing/default model features and must not be read as measured weather.
+---
 
-Current feedback support stores helpful/not-helpful ratings against recommendation IDs from the analysis UI. Those votes remain `training_eligible: false`. Automatic outcome association, feedback-based promotion, and live/online retraining do not exist and must not be represented as active learning.
+## What SlipStream does not claim
 
-Current experiment promotion selects the lowest grouped-cross-validation composite score among that run's candidates; the immutable holdout is reported but not used for selection. Production promotion additionally requires no group leakage, reproducibility at the declared seed and source revisions, valid interval-coverage reporting, no material holdout regression, compatible dimensions/features, and a checksummed loadable artifact. See [verification and promotion policy](docs/verification.md).
+These limits are intentional.
+
+- **Observational, not causal.** Expected bands summarize comparable laps. Scenario ideas never promise seconds saved.
+- **260,031 is a row count, not a lap count.** Independent laps after reconstruction are reported separately as `effective_laps`.
+- **The 500,001-row run is synthetic.** It proves ingest and query capacity. It is not upstream data.
+- **A champion won its offline run.** It is not auto-promoted. The holdout is reported, not used for selection.
+- **Ratings do not retrain.** Votes are stored with `training_eligible: false`. Outcome linking and online learning are future work: [`docs/verification.md`](docs/verification.md).
+- **Unsupported conditions abstain.** Wet, cold, high-wear, low support, or disagreement produce a labelled conservative cue.
+
+---
+
+## Repository layout
+
+```
+src/
+  core/          config, canonical telemetry contracts, track lookups
+  db/            SQLAlchemy models, session factory, set-based repositories
+  ingest/        Forza UDP, Assetto Corsa mapping, lap reconstruction, importers
+  processing/    processed-lap builder, alignment, segmentation, validation
+  analysis/      corner records, baselines, seven detectors, findings, templates
+  ml/            datasets, sklearn/torch models, experiments, registry, scenarios
+  services/      database-first telemetry store with filesystem fallback
+  api/           FastAPI app, routes, session scanner, capture manager
+  benchmarks/    500K-row bulk-ingest and indexed-query benchmark
+migrations/      Alembic revisions
+frontend/src/    pages, components, typed API client, hooks, utils
+tests/           357 fixture-based backend tests
+docs/            data sources, verification policy, screenshots
+```
+
+---
+
+## Roadmap
+
+- Hosted deployment with accounts so drivers can upload sessions without running the stack.
+- Cap scenario output to one primary cue per corner.
+- Import the pinned Assetto Corsa corpus and register a production champion from it.
+- Close the feedback loop: link follow-up laps to recommendations, then retrain only after an independent-lap batch clears the promotion gates.
+
+---
+
+## Further reading
+
+- [`docs/data-sources.md`](docs/data-sources.md) — pinned revisions, licences, how rows are counted
+- [`docs/verification.md`](docs/verification.md) — verification steps, promotion criteria, feedback scope
+- [`data/benchmarks/postgres-500001.json`](data/benchmarks/postgres-500001.json) — recorded capacity run and `EXPLAIN` plan
