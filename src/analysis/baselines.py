@@ -13,8 +13,8 @@ argmin over a collection of already-built ``CornerRecord`` instances.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import Any, Iterable
+from dataclasses import dataclass
+from typing import Any, Iterable, Optional
 
 from src.analysis.constants import BASELINE_ENTRY_SPEED_ADVANTAGE_KPH
 from src.analysis.corner_records import CornerRecord
@@ -28,14 +28,31 @@ class CornerBaseline:
     reference_lap_number: int
     reference_record: CornerRecord
     candidate_lap_numbers: list[int]
+    champion_expected_input_profile: Optional[dict[str, Any]] = None
+    section_pace: Optional[dict[str, Any]] = None
+    model_context: Optional[dict[str, Any]] = None
+    scenario_recommendation: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "corner_id": self.corner_id,
             "reference_lap_number": self.reference_lap_number,
             "reference_record": self.reference_record.to_dict(),
             "candidate_lap_numbers": list(self.candidate_lap_numbers),
         }
+        if self.champion_expected_input_profile is not None:
+            payload["champion_expected_input_profile"] = dict(
+                self.champion_expected_input_profile
+            )
+        if self.section_pace is not None:
+            payload["section_pace"] = dict(self.section_pace)
+        if self.model_context is not None:
+            payload["model_context"] = dict(self.model_context)
+        if self.scenario_recommendation is not None:
+            payload["scenario_recommendation"] = dict(
+                self.scenario_recommendation
+            )
+        return payload
 
 
 def build_per_corner_baselines(

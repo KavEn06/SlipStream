@@ -8,11 +8,12 @@ session: this module never touches raw telemetry or reference paths.
 
 from __future__ import annotations
 
+import argparse
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -30,16 +31,23 @@ from src.analysis.corner_records import (
     StraightRecord,
     extract_corner_records,
 )
-from src.analysis.detectors import DetectorHit, run_all_detectors
+from src.analysis.detectors import (
+    DEFAULT_DETECTORS,
+    EXPERIMENTAL_DETECTORS,
+    DetectorHit,
+    run_all_detectors,
+)
 from src.analysis.findings import Finding, FindingSet, build_findings
 from src.analysis.session_summary import SessionSummary, build_session_summary
-from src.core.config import PROCESSED_DATA_ROOT
+from src.core.config import PROCESSED_DATA_ROOT, get_settings
 from src.processing.alignment import resample_aligned_lap
 from src.processing.segmentation import (
     CornerDefinition,
     StraightDefinition,
     TrackSegmentation,
 )
+from src.ml.inference import MLInferenceResult, MLProductInferenceService
+from src.services.telemetry_store import TelemetryDatastore
 
 
 ANALYSIS_ARTIFACT_FILENAME = "session_analysis.json"
@@ -66,6 +74,8 @@ class SessionAnalysis:
     reference_length_m: float = 0.0
     session_summary: SessionSummary | None = None
     quality_report: dict[str, Any] = field(default_factory=dict)
+    detector_configuration: dict[str, Any] = field(default_factory=dict)
+    ml_context: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -94,6 +104,8 @@ class SessionAnalysis:
                 self.session_summary.to_dict() if self.session_summary else None
             ),
             "quality_report": dict(self.quality_report),
+            "detector_configuration": dict(self.detector_configuration),
+            "ml_context": dict(self.ml_context),
         }
 
 
@@ -112,6 +124,9 @@ def run(
     processed_root: Path | None = None,
     write: bool = True,
     strict_reconciliation: bool = True,
+    datastore: TelemetryDatastore | None = None,
+    experimental_detectors: Optional[bool] = None,
+    enable_ml: bool = True,
 ) -> SessionAnalysis:
     """Run the full analysis pipeline for a session.
 
@@ -137,6 +152,11 @@ def run(
 
     metadata = _load_metadata(session_dir)
     segmentation = _load_segmentation(session_dir)
+    include_experimental = (
+        experimental_detectors
+        if experimental_detectors is not None
+        else get_settings().experimental_detectors_enabled
+    )
     usable_lap_numbers = _usable_lap_numbers(metadata)
     if not usable_lap_numbers:
         raise ValueError(f"No usable laps for session {session_id!r}")
@@ -145,10 +165,17 @@ def run(
     per_lap_records: dict[int, list[CornerRecord]] = {}
     per_lap_straights: dict[int, list[StraightRecord]] = {}
     per_lap_lap_time: dict[int, float] = {}
+    processed_laps: dict[int, pd.DataFrame] = {}
     for lap_number in usable_lap_numbers:
-        processed_lap = _load_processed_lap(session_dir, lap_number)
+        processed_lap = _load_processed_lap(
+            session_dir,
+            lap_number,
+            datastore=datastore,
+            session_id=session_id,
+        )
         if processed_lap.empty:
             continue
+        processed_laps[lap_number] = processed_lap
         resampled = resample_aligned_lap(processed_lap)
         corners, straights = extract_corner_records(
             resampled_lap=resampled,
@@ -160,10 +187,23 @@ def run(
         per_lap_straights[lap_number] = straights
         per_lap_lap_time[lap_number] = _lap_time_s(processed_lap)
 
+    ml_result = _run_optional_ml_inference(
+        session_id=session_id,
+        processed_laps=processed_laps,
+        metadata=metadata,
+        datastore=datastore,
+        enabled=enable_ml,
+    )
+
     # Group by corner and compute baselines.
     flat_records = [r for recs in per_lap_records.values() for r in recs]
     records_by_corner = group_records_by_corner(flat_records)
     baselines = build_per_corner_baselines(records_by_corner)
+    baselines = _enrich_baselines_with_ml(
+        baselines,
+        segmentation,
+        ml_result,
+    )
 
     # Run detectors + build findings.
     hits: list[DetectorHit] = []
@@ -172,7 +212,13 @@ def run(
         if baseline is None:
             continue
         for record in records:
-            hits.extend(run_all_detectors(record, baseline))
+            hits.extend(
+                run_all_detectors(
+                    record,
+                    baseline,
+                    include_experimental=include_experimental,
+                )
+            )
 
     # Also run detectors on compound corner sub-records (e.g. chicane apexes).
     # Sub-records carry unique IDs (corner 3 → sub-corners 301, 302) so they
@@ -191,7 +237,13 @@ def run(
             if sub_baseline is None:
                 continue
             for sub_record in sub_records_list:
-                hits.extend(run_all_detectors(sub_record, sub_baseline))
+                hits.extend(
+                    run_all_detectors(
+                        sub_record,
+                        sub_baseline,
+                        include_experimental=include_experimental,
+                    )
+                )
         # Merge so build_findings can resolve alignment quality for sub-corner hits.
         all_records_by_corner: dict[int, list[CornerRecord]] = {
             **records_by_corner,
@@ -200,7 +252,11 @@ def run(
     else:
         all_records_by_corner = records_by_corner
 
-    finding_set = build_findings(hits, all_records_by_corner)
+    finding_set = _enrich_findings_with_ml(
+        build_findings(hits, all_records_by_corner),
+        segmentation,
+        ml_result,
+    )
 
     # Reconciliation: |sum(corner_delta) + sum(straight_delta) - actual_delta|.
     reconciliation = _compute_reconciliation(
@@ -248,15 +304,206 @@ def run(
             usable_lap_numbers=usable_lap_numbers,
             per_lap_records=per_lap_records,
         ),
+        detector_configuration={
+            "default_detectors": list(DEFAULT_DETECTORS),
+            "experimental_detectors": list(EXPERIMENTAL_DETECTORS),
+            "experimental_enabled": bool(include_experimental),
+            "active_detector_count": len(DEFAULT_DETECTORS)
+            + (len(EXPERIMENTAL_DETECTORS) if include_experimental else 0),
+        },
+        ml_context=ml_result.to_dict(),
     )
 
     if write:
+        payload = session_analysis.to_dict()
         (session_dir / ANALYSIS_ARTIFACT_FILENAME).write_text(
-            json.dumps(session_analysis.to_dict(), indent=2),
+            json.dumps(payload, indent=2),
             encoding="utf-8",
         )
+        if datastore is not None and datastore.get_session_detail(session_id) is not None:
+            datastore.persist_analysis(
+                session_id=session_id,
+                analysis_version=session_analysis.analysis_version,
+                payload=payload,
+                findings=[finding.to_dict() for finding in session_analysis.findings_all],
+            )
 
     return session_analysis
+
+
+def _run_optional_ml_inference(
+    *,
+    session_id: str,
+    processed_laps: dict[int, pd.DataFrame],
+    metadata: dict[str, Any],
+    datastore: TelemetryDatastore | None,
+    enabled: bool,
+) -> MLInferenceResult:
+    if not enabled:
+        return MLInferenceResult.unavailable("ml_inference_disabled")
+    conditions: dict[str, Any] = {}
+    condition_reader = getattr(datastore, "get_session_conditions", None)
+    if condition_reader is not None:
+        try:
+            stored_conditions = condition_reader(session_id)
+            if isinstance(stored_conditions, dict):
+                conditions = stored_conditions
+        except Exception:
+            conditions = {}
+    return MLProductInferenceService(
+        database_factory=getattr(datastore, "factory", None),
+        model_root=get_settings().model_root,
+    ).infer(
+        session_id,
+        processed_laps,
+        session_metadata=metadata,
+        conditions=conditions,
+    )
+
+
+def _enrich_baselines_with_ml(
+    baselines: dict[int, CornerBaseline],
+    segmentation: TrackSegmentation,
+    ml_result: MLInferenceResult,
+) -> dict[int, CornerBaseline]:
+    if ml_result.model is None:
+        return baselines
+    enriched: dict[int, CornerBaseline] = {}
+    for corner_id, baseline in baselines.items():
+        corner = _corner_definition(corner_id, segmentation)
+        if corner is None:
+            enriched[corner_id] = baseline
+            continue
+        center = _corner_center_progress(corner_id, corner)
+        profile = ml_result.profile_slice(
+            baseline.reference_lap_number,
+            max(
+                0.0,
+                corner.approach_start_distance_m
+                / max(segmentation.reference_length_m, 1.0),
+            ),
+            corner.end_progress_norm,
+        )
+        section_context = ml_result.context_for(
+            baseline.reference_lap_number,
+            center,
+        )
+        enriched[corner_id] = replace(
+            baseline,
+            champion_expected_input_profile=profile,
+            section_pace=section_context,
+            model_context=(
+                {
+                    "model": dict(ml_result.model),
+                    "abstained": ml_result.abstained,
+                    "abstention_reasons": list(ml_result.abstention_reasons),
+                }
+            ),
+            scenario_recommendation=ml_result.recommendation_for(center),
+        )
+    return enriched
+
+
+def _enrich_findings_with_ml(
+    finding_set: FindingSet,
+    segmentation: TrackSegmentation,
+    ml_result: MLInferenceResult,
+) -> FindingSet:
+    if ml_result.model is None:
+        return finding_set
+    enriched_by_id: dict[str, Finding] = {}
+    for finding in finding_set.findings_all:
+        corner = _corner_definition(finding.corner_id, segmentation)
+        if corner is None:
+            enriched_by_id[finding.finding_id] = finding
+            continue
+        center = _corner_center_progress(finding.corner_id, corner)
+        context = ml_result.context_for(finding.lap_number, center)
+        if context is None:
+            context = {
+                "learned": True,
+                "model": dict(ml_result.model),
+                "supported": False,
+                "abstained": True,
+                "abstention_reason": ", ".join(ml_result.abstention_reasons)
+                or "expected_profile_unavailable",
+                "provenance": "registry_champion",
+            }
+        profile = ml_result.profile_slice(
+            finding.lap_number,
+            max(
+                0.0,
+                corner.approach_start_distance_m
+                / max(segmentation.reference_length_m, 1.0),
+            ),
+            corner.end_progress_norm,
+        )
+        context["expected_input_profile"] = profile
+        support = context.get("support")
+        measured_confidence = finding.confidence
+        adjusted_confidence = measured_confidence
+        if bool(context.get("supported")) and isinstance(support, (int, float)):
+            # Learned support can tune confidence modestly; measured loss and
+            # reconciliation remain unchanged and authoritative.
+            adjusted_confidence = max(
+                0.0,
+                min(1.0, measured_confidence * (0.90 + 0.10 * float(support))),
+            )
+        evidence = list(finding.evidence_refs)
+        if profile is not None:
+            evidence.append(
+                {
+                    "kind": "champion_expected_band",
+                    "progress_start": corner.start_progress_norm,
+                    "progress_end": corner.end_progress_norm,
+                    "model_version": ml_result.model.get("version"),
+                }
+            )
+        enriched_by_id[finding.finding_id] = replace(
+            finding,
+            confidence=adjusted_confidence,
+            measured_confidence=measured_confidence,
+            section_priority=context.get("section_priority"),
+            ml_context=context,
+            scenario_recommendation=ml_result.recommendation_for(center),
+            evidence_refs=evidence,
+        )
+    return FindingSet(
+        findings_top=[
+            enriched_by_id.get(finding.finding_id, finding)
+            for finding in finding_set.findings_top
+        ],
+        findings_all=[
+            enriched_by_id.get(finding.finding_id, finding)
+            for finding in finding_set.findings_all
+        ],
+    )
+
+
+def _corner_definition(
+    corner_id: int,
+    segmentation: TrackSegmentation,
+) -> Optional[CornerDefinition]:
+    parent_id = corner_id // 100 if corner_id >= 100 else corner_id
+    return next(
+        (
+            corner
+            for corner in segmentation.corners
+            if corner.corner_id == parent_id
+        ),
+        None,
+    )
+
+
+def _corner_center_progress(
+    corner_id: int,
+    corner: CornerDefinition,
+) -> float:
+    if corner_id >= 100:
+        sub_index = corner_id % 100 - 1
+        if 0 <= sub_index < len(corner.sub_apex_progress_norms):
+            return float(corner.sub_apex_progress_norms[sub_index])
+    return float(corner.center_progress_norm)
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +526,19 @@ def _load_segmentation(session_dir: Path) -> TrackSegmentation:
     return deserialize_segmentation(payload)
 
 
-def _load_processed_lap(session_dir: Path, lap_number: int) -> pd.DataFrame:
+def _load_processed_lap(
+    session_dir: Path,
+    lap_number: int,
+    datastore: TelemetryDatastore | None = None,
+    session_id: str | None = None,
+) -> pd.DataFrame:
+    if datastore is not None and session_id is not None:
+        try:
+            database_frame = datastore.load_processed_lap(session_id, lap_number)
+        except Exception:
+            database_frame = None
+        if database_frame is not None:
+            return database_frame
     path = session_dir / f"lap_{lap_number:03d}.csv"
     if not path.is_file():
         return pd.DataFrame()
@@ -493,3 +752,49 @@ def _quality_report(
         "usable_lap_numbers": list(usable_lap_numbers),
         "per_lap": lap_summary,
     }
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Run deterministic session analysis and optional champion inference."
+    )
+    parser.add_argument("session_id")
+    parser.add_argument("--processed-root", type=Path, default=PROCESSED_DATA_ROOT)
+    parser.add_argument("--no-write", action="store_true")
+    parser.add_argument("--no-strict-reconciliation", action="store_true")
+    parser.add_argument("--no-ml", action="store_true")
+    parser.add_argument(
+        "--experimental-detectors",
+        action="store_true",
+        default=None,
+        help="Enable the two research detectors for this run.",
+    )
+    args = parser.parse_args(argv)
+    result = run(
+        args.session_id,
+        processed_root=args.processed_root,
+        write=not args.no_write,
+        strict_reconciliation=not args.no_strict_reconciliation,
+        experimental_detectors=args.experimental_detectors,
+        enable_ml=not args.no_ml,
+    )
+    print(
+        json.dumps(
+            {
+                "session_id": result.session_id,
+                "analysis_version": result.analysis_version,
+                "reference_lap_number": result.reference_lap_number,
+                "findings_top_count": len(result.findings_top),
+                "findings_all_count": len(result.findings_all),
+                "detector_configuration": result.detector_configuration,
+                "ml_status": result.ml_context.get("status", "unavailable"),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

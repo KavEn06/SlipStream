@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import asdict, dataclass, field
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 from src.analysis.baselines import CornerBaseline
 from src.analysis.constants import (
@@ -73,9 +73,22 @@ class Finding:
     ai_context: str
     evidence_refs: list[dict[str, Any]]
     metrics_snapshot: dict[str, Any]
+    measured_confidence: Optional[float] = None
+    section_priority: Optional[float] = None
+    ml_context: Optional[dict[str, Any]] = None
+    scenario_recommendation: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        for key in (
+            "measured_confidence",
+            "section_priority",
+            "ml_context",
+            "scenario_recommendation",
+        ):
+            if payload[key] is None:
+                payload.pop(key)
+        return payload
 
 
 @dataclass(frozen=True)

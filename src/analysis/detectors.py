@@ -1,4 +1,4 @@
-"""Seven detectors for the corner analysis layer.
+"""Seven default detectors for the corner analysis layer.
 
 Each detector is a pure function that takes a candidate ``CornerRecord``
 and its per-corner ``CornerBaseline`` and returns a ``DetectorHit | None``.
@@ -12,13 +12,16 @@ happen in the ranking pass so we can reason about the full candidate set
 at once.
 
 A universal gate is applied before any detector runs via
-:func:`run_all_detectors`. See the module docstring of
-``src.analysis.baselines`` for the corresponding baseline strategy.
+:func:`run_all_detectors`. ``abrupt_brake_release`` and
+``long_coasting_phase`` are retained as explicitly experimental detectors;
+they are not part of the default product count and only run when enabled by
+argument or ``SLIPSTREAM_EXPERIMENTAL_DETECTORS``.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import os
 from typing import Any
 
 from src.analysis.baselines import CornerBaseline
@@ -61,6 +64,20 @@ DETECTOR_WEAK_EXIT = "weak_exit"
 DETECTOR_STEERING_INSTABILITY = "steering_instability"
 DETECTOR_ABRUPT_BRAKE_RELEASE = "abrupt_brake_release"
 DETECTOR_LONG_COASTING_PHASE = "long_coasting_phase"
+
+DEFAULT_DETECTORS = (
+    DETECTOR_EARLY_BRAKING,
+    DETECTOR_LATE_BRAKING,
+    DETECTOR_TRAIL_BRAKE_PAST_APEX,
+    DETECTOR_OVER_SLOW_MID_CORNER,
+    DETECTOR_EXIT_PHASE_LOSS,
+    DETECTOR_WEAK_EXIT,
+    DETECTOR_STEERING_INSTABILITY,
+)
+EXPERIMENTAL_DETECTORS = (
+    DETECTOR_ABRUPT_BRAKE_RELEASE,
+    DETECTOR_LONG_COASTING_PHASE,
+)
 
 
 @dataclass(frozen=True)
@@ -133,20 +150,24 @@ def universal_gate(record: CornerRecord, baseline: CornerBaseline) -> float | No
 
 
 def run_all_detectors(
-    record: CornerRecord, baseline: CornerBaseline
+    record: CornerRecord,
+    baseline: CornerBaseline,
+    include_experimental: bool | None = None,
 ) -> list[DetectorHit]:
-    """Run every detector against one (record, baseline) pair.
+    """Run the seven product detectors against one record/baseline pair.
 
     Mutual-suppression rules are NOT applied here — they operate over the
     full candidate pool in ``findings.py``. This function only enforces the
-    universal gate and collects raw hits.
+    universal gate and collects raw hits. Experimental detectors are added
+    only when explicitly enabled. When the argument is omitted, the
+    ``SLIPSTREAM_EXPERIMENTAL_DETECTORS`` environment flag is consulted.
     """
     time_loss_s = universal_gate(record, baseline)
     if time_loss_s is None:
         return []
 
     hits: list[DetectorHit] = []
-    for detector_fn in (
+    detector_functions = [
         detect_early_braking,
         detect_late_braking,
         detect_trail_brake_past_apex,
@@ -154,9 +175,16 @@ def run_all_detectors(
         detect_exit_phase_loss,
         detect_weak_exit,
         detect_steering_instability,
-        detect_abrupt_brake_release,
-        detect_long_coasting_phase,
+    ]
+    if (
+        include_experimental
+        if include_experimental is not None
+        else _environment_flag("SLIPSTREAM_EXPERIMENTAL_DETECTORS")
     ):
+        detector_functions.extend(
+            [detect_abrupt_brake_release, detect_long_coasting_phase]
+        )
+    for detector_fn in detector_functions:
         hit = detector_fn(record, baseline, time_loss_s)
         if hit is not None:
             hits.append(hit)
@@ -783,3 +811,7 @@ def _saturate(value: float) -> float:
     if value != value:  # NaN guard
         return 0.0
     return float(max(0.0, min(1.0, value)))
+
+
+def _environment_flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}

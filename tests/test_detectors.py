@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from unittest.mock import patch
 
 from src.analysis.baselines import CornerBaseline
 from src.analysis.constants import (
@@ -32,9 +33,13 @@ from src.analysis.corner_records import (
     ThrottleEvent,
 )
 from src.analysis.detectors import (
+    DEFAULT_DETECTORS,
+    EXPERIMENTAL_DETECTORS,
+    DETECTOR_ABRUPT_BRAKE_RELEASE,
     DETECTOR_EARLY_BRAKING,
     DETECTOR_EXIT_PHASE_LOSS,
     DETECTOR_LATE_BRAKING,
+    DETECTOR_LONG_COASTING_PHASE,
     DETECTOR_OVER_SLOW_MID_CORNER,
     DETECTOR_STEERING_INSTABILITY,
     DETECTOR_TRAIL_BRAKE_PAST_APEX,
@@ -722,6 +727,56 @@ class TestSteeringInstability(unittest.TestCase):
 
 
 class TestRunAllDetectors(unittest.TestCase):
+    def test_exactly_seven_detectors_are_in_the_default_product_set(self) -> None:
+        self.assertEqual(len(DEFAULT_DETECTORS), 7)
+        self.assertEqual(len(set(DEFAULT_DETECTORS)), 7)
+        self.assertTrue(set(DEFAULT_DETECTORS).isdisjoint(EXPERIMENTAL_DETECTORS))
+        self.assertEqual(
+            set(EXPERIMENTAL_DETECTORS),
+            {
+                DETECTOR_ABRUPT_BRAKE_RELEASE,
+                DETECTOR_LONG_COASTING_PHASE,
+            },
+        )
+
+    def test_experimental_detectors_require_explicit_enablement(self) -> None:
+        base = replace(
+            _record(
+                lap_number=1,
+                corner_time_s=6.0,
+                brake=_brake(release_rate=1.0),
+            ),
+            coasting_distance_m=0.0,
+        )
+        candidate = replace(
+            _record(
+                lap_number=2,
+                corner_time_s=6.4,
+                brake=_brake(release_rate=10.0),
+            ),
+            coasting_distance_m=30.0,
+        )
+        with patch.dict(
+            "os.environ",
+            {"SLIPSTREAM_EXPERIMENTAL_DETECTORS": "false"},
+        ):
+            default_names = {
+                hit.detector
+                for hit in run_all_detectors(candidate, _baseline_from(base))
+            }
+        explicit_names = {
+            hit.detector
+            for hit in run_all_detectors(
+                candidate,
+                _baseline_from(base),
+                include_experimental=True,
+            )
+        }
+        self.assertNotIn(DETECTOR_ABRUPT_BRAKE_RELEASE, default_names)
+        self.assertNotIn(DETECTOR_LONG_COASTING_PHASE, default_names)
+        self.assertIn(DETECTOR_ABRUPT_BRAKE_RELEASE, explicit_names)
+        self.assertIn(DETECTOR_LONG_COASTING_PHASE, explicit_names)
+
     def test_multiple_detectors_can_fire_simultaneously(self) -> None:
         base = _record(
             lap_number=1,
