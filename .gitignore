@@ -11,6 +11,7 @@ ENV/
 # Local environment files
 .env
 .env.*
+!.env.example
 .python-version
 
 # Test and tool caches
@@ -35,6 +36,10 @@ dist/
 # Generated telemetry output
 data/raw/
 data/processed/
+data/cache/
+data/models/
+data/*.db
+data/*.db-*
 src/reference/
 
 # Frontend build artifacts
