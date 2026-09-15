@@ -17,6 +17,7 @@ from src.processing.alignment import align_session_laps
 from src.processing.segmentation import segment_track
 from src.processing.track_outline import TRACK_OUTLINE_FILENAME, TrackOutlineArtifact, build_session_track_outline
 from src.processing.validation import build_validation_context, evaluate_lap_validation, write_validation_result
+from src.services.telemetry_store import TelemetryDatastore
 
 
 RAW_REQUIRED_COLUMNS = set(RAW_LAP_COLUMNS)
@@ -294,7 +295,11 @@ def load_processed_lap(path: str | Path) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
-def process_session(raw_session_dir: str | Path, processed_session_dir: str | Path | None = None) -> list[Path]:
+def process_session(
+    raw_session_dir: str | Path,
+    processed_session_dir: str | Path | None = None,
+    datastore: TelemetryDatastore | None = None,
+) -> list[Path]:
     raw_dir = Path(raw_session_dir)
     session_id = raw_dir.name
     if processed_session_dir is None:
@@ -303,12 +308,28 @@ def process_session(raw_session_dir: str | Path, processed_session_dir: str | Pa
         processed_dir = Path(processed_session_dir)
 
     _validate_session_processing_paths(raw_dir, processed_dir)
-    session_metadata = _load_session_metadata(raw_dir)
+    try:
+        database_backed = datastore is not None and datastore.has_raw_session(session_id)
+    except Exception:
+        database_backed = False
+    if database_backed:
+        session_metadata = datastore.get_processing_metadata(session_id)
+        lap_mapping = datastore.get_lap_number_mapping(session_id)
+        raw_inputs = []
+        for lap_number in sorted(lap_mapping["stored_to_display"]):
+            raw_df = datastore.load_raw_lap(session_id, lap_number)
+            if raw_df is not None:
+                raw_inputs.append((processed_dir / f"lap_{lap_number:03d}.csv", raw_df))
+    else:
+        session_metadata = _load_session_metadata(raw_dir)
+        raw_inputs = [
+            (processed_dir / raw_lap_path.name, pd.read_csv(raw_lap_path))
+            for raw_lap_path in sorted(raw_dir.glob("lap_*.csv"))
+        ]
     staged_laps: list[dict[str, object]] = []
 
-    for raw_lap_path in sorted(raw_dir.glob("lap_*.csv")):
-        raw_df = pd.read_csv(raw_lap_path)
-        lap_number = _resolve_lap_number(raw_df, raw_lap_path)
+    for processed_path, raw_df in raw_inputs:
+        lap_number = _resolve_lap_number(raw_df)
         processed_df, validation_result = build_processed_lap_dataframe_with_validation(
             raw_df,
             session_id=session_id,
@@ -319,7 +340,7 @@ def process_session(raw_session_dir: str | Path, processed_session_dir: str | Pa
         staged_laps.append(
             {
                 "lap_number": resolved_lap_number,
-                "processed_path": processed_dir / raw_lap_path.name,
+                "processed_path": processed_path,
                 "processed_df": processed_df,
                 "validation_result": validation_result,
             }
@@ -364,6 +385,20 @@ def process_session(raw_session_dir: str | Path, processed_session_dir: str | Pa
             segmentation=segmentation,
             track_outline=track_outline,
         )
+        if database_backed:
+            database_laps = {
+                int(staged_lap["lap_number"]): alignment_artifacts.aligned_laps.get(
+                    int(staged_lap["lap_number"]),
+                    staged_lap["processed_df"],
+                )
+                for staged_lap in staged_laps
+            }
+            datastore.persist_processed_laps(
+                session_id=session_id,
+                laps=database_laps,
+                processed_metadata=processed_metadata,
+                processing_version=SCHEMA_VERSION,
+            )
         _commit_managed_processed_artifacts(staging_dir, processed_dir)
     except Exception:
         shutil.rmtree(staging_dir, ignore_errors=True)
