@@ -1,6 +1,21 @@
 # SlipStream
 
-**A telemetry-first driving coach for sim racing.** SlipStream captures live Forza telemetry, imports real Assetto Corsa datasets, stores everything in PostgreSQL, and turns each lap into ranked, corner-by-corner coaching with measured time loss. On top of that, leakage-safe **scikit-learn and PyTorch models** learn expected throttle, brake, steering, and speed bands, then propose small, guarded section ideas.
+**Telemetry-first driving coach for sim racing.**
+
+```mermaid
+flowchart LR
+  ingest["Forza UDP<br/>AC Parquet 100 Hz"] --> store["PostgreSQL"]
+  store --> laps["Canonical laps"]
+  laps --> coach["7 detectors<br/>ranked time-loss"]
+  store --> ml["sklearn + PyTorch<br/>expected-input bands"]
+  ml --> coach
+  coach --> ui["React dashboard"]
+```
+
+- **Ingest** — live Forza capture and real Assetto Corsa datasets
+- **Store** — PostgreSQL as source of truth (SQLite in tests)
+- **Coach** — corner-by-corner findings with measured seconds lost
+- **Learn** — leakage-safe models for throttle / brake / steering / speed bands and guarded section ideas
 
 [![Verification](https://github.com/KavEn06/SlipStream/actions/workflows/verification.yml/badge.svg)](https://github.com/KavEn06/SlipStream/actions/workflows/verification.yml)
 ![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
@@ -13,13 +28,6 @@
 ![Tests](https://img.shields.io/badge/tests-357_backend_%2B_6_frontend-2ea44f)
 
 ![Session analysis: a late-braking finding at T11, ranked by seconds lost, with a track overlay](docs/screenshots/analysis.png)
-
-Most sim-racing tools show graphs and leave the reading to you. SlipStream does the reading: it reconstructs laps, finds corners, compares them to your best lap, and explains where time was lost in plain English. The ML layer then answers a second question the rules cannot: *what do comparable fast laps actually do with the inputs through this corner?*
-
-```
-live UDP / Parquet  →  PostgreSQL  →  canonical laps  →  7 detectors
-                                              ↘ leakage-safe models → expected bands + scenario ideas
-```
 
 ---
 
