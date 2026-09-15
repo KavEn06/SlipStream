@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from src.core.config import PROCESSED_DATA_ROOT, RAW_DATA_ROOT
+from src.services.telemetry_store import get_default_telemetry_store
 
 LAP_VIEW_FULL = "full"
 LAP_VIEW_REVIEW = "review"
@@ -47,6 +48,18 @@ COMPARE_COLUMNS = [
 ]
 
 
+def _database_call(method_name: str, *args, default=None, **kwargs):
+    store = get_default_telemetry_store()
+    if store is None:
+        return default
+    try:
+        return getattr(store, method_name)(*args, **kwargs)
+    except Exception:
+        # Database access is optional for fresh/file-only installs and while
+        # a configured PostgreSQL service is temporarily unavailable.
+        return default
+
+
 def list_sessions() -> list[dict]:
     session_ids: set[str] = set()
     for root in (RAW_DATA_ROOT, PROCESSED_DATA_ROOT):
@@ -75,10 +88,18 @@ def list_sessions() -> list[dict]:
             }
         )
 
-    return sessions
+    database_sessions = _database_call("list_sessions", default=[])
+    merged = {session["session_id"]: session for session in sessions}
+    for session in database_sessions:
+        merged[session["session_id"]] = session
+    return [merged[session_id] for session_id in sorted(merged, reverse=True)]
 
 
 def get_session_detail(session_id: str) -> dict | None:
+    database_detail = _database_call("get_session_detail", session_id, default=None)
+    if database_detail is not None:
+        return database_detail
+
     raw_dir = RAW_DATA_ROOT / session_id
     processed_dir = PROCESSED_DATA_ROOT / session_id
 
@@ -133,6 +154,10 @@ def get_session_detail(session_id: str) -> dict | None:
 
 
 def get_session_lap_number_mapping(session_id: str) -> dict[str, dict[int, int]]:
+    database_mapping = _database_call("get_lap_number_mapping", session_id, default=None)
+    if database_mapping and database_mapping.get("stored_to_display"):
+        return database_mapping
+
     raw_dir = RAW_DATA_ROOT / session_id
     processed_dir = PROCESSED_DATA_ROOT / session_id
     metadata = (_load_metadata(raw_dir) or {}) | (_load_metadata(processed_dir) or {})
@@ -144,7 +169,14 @@ def get_session_lap_number_mapping(session_id: str) -> dict[str, dict[int, int]]
 
 
 def update_session_metadata(session_id: str, *, display_name: str | None) -> dict | None:
-    updated = False
+    updated = bool(
+        _database_call(
+            "update_session_metadata",
+            session_id,
+            _normalize_display_name(display_name),
+            default=False,
+        )
+    )
     normalized_display_name = _normalize_display_name(display_name)
 
     for directory in (RAW_DATA_ROOT / session_id, PROCESSED_DATA_ROOT / session_id):
@@ -176,6 +208,23 @@ def get_lap_data(
     view: str = LAP_VIEW_FULL,
     max_points: int = 1000,
 ) -> dict | None:
+    database_frame = _database_call(
+        "load_raw_lap" if data_type == "raw" else "load_processed_lap",
+        session_id,
+        lap_number,
+        display_number=True,
+        default=None,
+    )
+    if database_frame is not None:
+        return _build_lap_data_response(
+            session_id,
+            lap_number,
+            data_type,
+            database_frame,
+            view=view,
+            max_points=max_points,
+        )
+
     base_dir = RAW_DATA_ROOT if data_type == "raw" else PROCESSED_DATA_ROOT
     raw_dir = RAW_DATA_ROOT / session_id
     processed_dir = PROCESSED_DATA_ROOT / session_id
@@ -195,6 +244,25 @@ def get_lap_data(
         return None
 
     df = pd.read_csv(lap_file)
+    return _build_lap_data_response(
+        session_id,
+        lap_number,
+        data_type,
+        df,
+        view=view,
+        max_points=max_points,
+    )
+
+
+def _build_lap_data_response(
+    session_id: str,
+    lap_number: int,
+    data_type: str,
+    df: pd.DataFrame,
+    *,
+    view: str,
+    max_points: int,
+) -> dict:
     summary = _build_lap_data_summary(df, data_type)
     x_key = REVIEW_X_KEYS[data_type]
 
@@ -329,7 +397,7 @@ def build_lap_overlay(
 
 
 def delete_session(session_id: str) -> bool:
-    deleted = False
+    deleted = bool(_database_call("delete_session", session_id, default=False))
     for directory in (RAW_DATA_ROOT / session_id, PROCESSED_DATA_ROOT / session_id):
         if directory.exists():
             shutil.rmtree(directory)
@@ -338,6 +406,7 @@ def delete_session(session_id: str) -> bool:
 
 
 def delete_lap(session_id: str, lap_number: int) -> bool:
+    database_deleted = bool(_database_call("delete_lap", session_id, lap_number, default=False))
     raw_dir = RAW_DATA_ROOT / session_id
     processed_dir = PROCESSED_DATA_ROOT / session_id
     metadata = (_load_metadata(raw_dir) or {}) | (_load_metadata(processed_dir) or {})
@@ -348,9 +417,9 @@ def delete_lap(session_id: str, lap_number: int) -> bool:
     )
     stored_lap_number = lap_number_mapping["display_to_stored"].get(lap_number)
     if stored_lap_number is None:
-        return False
+        return database_deleted
 
-    deleted = False
+    deleted = database_deleted
     for root in (RAW_DATA_ROOT, PROCESSED_DATA_ROOT):
         session_dir = root / session_id
         lap_path = session_dir / f"lap_{stored_lap_number:03d}.csv"
@@ -553,6 +622,31 @@ def _read_series_last_bool_value(df: pd.DataFrame, column: str) -> bool | None:
 
 
 def _get_eligible_compare_laps(session_id: str) -> list[dict[str, float | int | None]]:
+    database_detail = _database_call("get_session_detail", session_id, default=None)
+    if database_detail is not None:
+        eligible_laps: list[dict[str, float | int | None]] = []
+        for lap in database_detail.get("laps", []):
+            if not lap.get("has_processed"):
+                continue
+            processed_df = _database_call(
+                "load_processed_lap",
+                session_id,
+                int(lap["lap_number"]),
+                display_number=True,
+                default=None,
+            )
+            if processed_df is None:
+                continue
+            if _read_series_last_bool_value(processed_df, "AlignmentIsUsable") is not True:
+                continue
+            eligible_laps.append(
+                {
+                    "lap_number": int(lap["lap_number"]),
+                    "lap_time_s": _read_series_last_numeric_value(processed_df, "LapTimeS"),
+                }
+            )
+        return eligible_laps
+
     raw_dir = RAW_DATA_ROOT / session_id
     processed_dir = PROCESSED_DATA_ROOT / session_id
     metadata = (_load_metadata(raw_dir) or {}) | (_load_metadata(processed_dir) or {})
@@ -603,6 +697,18 @@ def _normalize_overlay_selection(selection: dict[str, object]) -> dict[str, int 
 
 
 def _load_compare_processed_lap(session_id: str, display_lap_number: int) -> pd.DataFrame:
+    database_frame = _database_call(
+        "load_processed_lap",
+        session_id,
+        display_lap_number,
+        display_number=True,
+        default=None,
+    )
+    if database_frame is not None:
+        if _read_series_last_bool_value(database_frame, "AlignmentIsUsable") is not True:
+            raise ValueError(f"Lap {display_lap_number} in {session_id} is not alignment-usable")
+        return database_frame
+
     raw_dir = RAW_DATA_ROOT / session_id
     processed_dir = PROCESSED_DATA_ROOT / session_id
     if not processed_dir.exists():

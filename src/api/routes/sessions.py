@@ -21,6 +21,7 @@ from src.api.services.session_scanner import (
 )
 from src.core.config import RAW_DATA_ROOT
 from src.processing.distance import process_session
+from src.services.telemetry_store import get_default_telemetry_store
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -59,11 +60,16 @@ def process_session_endpoint(session_id: str):
         )
 
     raw_dir = RAW_DATA_ROOT / session_id
-    if not raw_dir.exists():
+    datastore = get_default_telemetry_store()
+    try:
+        has_database_raw = datastore is not None and datastore.has_raw_session(session_id)
+    except Exception:
+        has_database_raw = False
+    if not raw_dir.exists() and not has_database_raw:
         raise HTTPException(status_code=404, detail="Raw session not found")
 
     try:
-        written = process_session(raw_dir)
+        written = process_session(raw_dir, datastore=datastore if has_database_raw else None)
         return ProcessResponse(
             session_id=session_id,
             processed_laps=len(written),
