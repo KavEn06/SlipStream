@@ -8,6 +8,8 @@ import struct
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
+from typing import Any, Optional
 
 from src.core.config import DEFAULT_LISTEN_IP, DEFAULT_LISTEN_PORT, DEFAULT_SIM_NAME, get_session_paths
 from src.core.schemas import (
@@ -122,6 +124,8 @@ class datacollector:
         port: int = DEFAULT_LISTEN_PORT,
         session_id: str | None = None,
         bind_socket: bool = True,
+        persistence: Optional[Any] = None,
+        persist_database: Optional[bool] = None,
     ):
         self.ip = ip
         self.port = port
@@ -141,6 +145,9 @@ class datacollector:
         self.completed_laps: set[int] = set()
         self.row_count = 0
         self.lap_index: dict[str, dict[str, int | str | None]] = {}
+        self.current_lap_rows: list[dict[str, float | int]] = []
+        self.lap_persister = persistence
+        self.persist_database = bind_socket if persist_database is None else persist_database
 
         self.car_ordinal: int | None = None
         self.track_ordinal: int | None = None
@@ -184,11 +191,13 @@ class datacollector:
 
         if self.csv_writer is not None:
             self.csv_writer.writerow([telemetry[column] for column in RAW_LAP_COLUMNS])
+            self.current_lap_rows.append(dict(telemetry))
             self._record_lap_timestamp(lap_number, timestamp_ms)
             self.row_count += 1
 
     def start_new_lap_file(self, lap_num: int, timestamp_ms: int | None = None) -> None:
         self.current_lap_number = lap_num
+        self.current_lap_rows = []
         self._ensure_lap_index_entry(lap_num, timestamp_ms)
 
         filename = self.session_paths.raw_dir / f"lap_{lap_num:03d}.csv"
@@ -208,6 +217,30 @@ class datacollector:
         if self.current_lap_number >= 0:
             self.completed_laps.add(self.current_lap_number)
             self._set_lap_close_reason(self.current_lap_number, close_reason)
+            self._persist_current_lap(close_reason)
+        self.current_lap_rows = []
+
+    def _persist_current_lap(self, close_reason: str | None) -> None:
+        if not self.current_lap_rows:
+            return
+        if self.lap_persister is None and not self.persist_database:
+            return
+        try:
+            if self.lap_persister is None:
+                from src.ingest.live_persistence import ForzaLapPersister
+
+                self.lap_persister = ForzaLapPersister()
+            self.lap_persister.persist_completed_lap(
+                session_external_id=self.session_paths.session_id,
+                metadata=self.metadata.to_dict(),
+                lap_number=self.current_lap_number,
+                rows=self.current_lap_rows,
+                close_reason=close_reason or "unknown",
+            )
+        except Exception as exc:
+            # File capture is authoritative during a live session. A database
+            # outage must not lose or interrupt the CSV artifact.
+            print("Warning: could not persist completed lap: {0}".format(exc), file=sys.stderr)
 
     def _update_metadata_from_telemetry(self, telemetry: dict[str, float | int]) -> None:
         self.car_ordinal = int(telemetry["CarOrdinal"])
@@ -281,10 +314,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ip", default=DEFAULT_LISTEN_IP, help="IP address to bind to.")
     parser.add_argument("--port", default=DEFAULT_LISTEN_PORT, type=int, help="UDP port to bind to.")
     parser.add_argument("--session-id", default=None, help="Optional session identifier override.")
+    parser.add_argument(
+        "--no-database",
+        action="store_true",
+        help="Keep CSV capture only and skip best-effort database persistence.",
+    )
     return parser
 
 
 if __name__ == "__main__":
     args = build_arg_parser().parse_args()
-    logger = datacollector(ip=args.ip, port=args.port, session_id=args.session_id)
+    logger = datacollector(
+        ip=args.ip,
+        port=args.port,
+        session_id=args.session_id,
+        persist_database=not args.no_database,
+    )
     logger.run()

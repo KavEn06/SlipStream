@@ -98,6 +98,46 @@ class IngestTests(unittest.TestCase):
             collector.sock.close()
             shutil.rmtree(temp_root)
 
+    def test_database_failure_does_not_break_completed_lap_file(self) -> None:
+        class FailingPersister:
+            def persist_completed_lap(self, **kwargs) -> None:
+                raise RuntimeError("database unavailable")
+
+        temp_root = Path(tempfile.mkdtemp())
+        collector = datacollector(
+            ip="127.0.0.1",
+            port=0,
+            session_id="session_best_effort",
+            bind_socket=False,
+            persistence=FailingPersister(),
+            persist_database=True,
+        )
+        collector.session_paths = SessionPaths(
+            session_id="session_best_effort",
+            raw_dir=temp_root / "raw",
+            processed_dir=temp_root / "processed",
+            raw_metadata_path=temp_root / "raw" / "metadata.json",
+            processed_metadata_path=temp_root / "processed" / "metadata.json",
+        )
+        collector.session_paths.raw_dir.mkdir(parents=True)
+        collector.session_paths.processed_dir.mkdir(parents=True)
+        try:
+            collector.process_packet(
+                self._build_packet(
+                    timestamp_ms=1000,
+                    lap_number=1,
+                    position_x=0.0,
+                    speed=30.0,
+                    current_lap=0.1,
+                )
+            )
+            collector.end_collection()
+            self.assertTrue((collector.session_paths.raw_dir / "lap_001.csv").is_file())
+            self.assertTrue(collector.session_paths.raw_metadata_path.is_file())
+        finally:
+            collector.sock.close()
+            shutil.rmtree(temp_root)
+
     @staticmethod
     def _build_packet(
         timestamp_ms: int,
