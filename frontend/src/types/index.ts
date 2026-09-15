@@ -187,6 +187,92 @@ export interface AnalysisFinding {
     [key: string]: unknown;
   }>;
   metrics_snapshot: Record<string, unknown>;
+  measured_confidence?: number;
+  section_priority?: number | null;
+  ml_context?: FindingMLContext | null;
+  scenario_recommendation?: ScenarioRecommendation | null;
+}
+
+export interface ExpectedBand {
+  expected: number | null;
+  lower: number | null;
+  upper: number | null;
+}
+
+export interface ExpectedTracePoint {
+  progress_norm: number;
+  throttle: ExpectedBand;
+  brake: ExpectedBand;
+  steering: ExpectedBand;
+  speed: ExpectedBand;
+}
+
+export interface ExpectedInputProfile {
+  lap_number: number;
+  model_version?: string | null;
+  support: number | null;
+  points: ExpectedTracePoint[];
+  units?: Record<string, string>;
+}
+
+export interface MLModelContext {
+  id?: number;
+  name?: string;
+  version?: string;
+  family?: string;
+  status?: string;
+  provenance?: string;
+  [key: string]: unknown;
+}
+
+export interface FindingMLContext {
+  learned: boolean;
+  model: MLModelContext | null;
+  section_key?: string;
+  section_priority?: number | null;
+  deviation_strength?: number | null;
+  support?: number | null;
+  supported: boolean;
+  abstained: boolean;
+  abstention_reason?: string | null;
+  provenance: string;
+  expected_input_profile?: ExpectedInputProfile | null;
+}
+
+export interface ScenarioRecommendation {
+  recommendation_id: string;
+  section_key: string;
+  feature: string;
+  hypothesis: string;
+  cue: string;
+  learned: boolean;
+  confidence: number;
+  model_version?: string | null;
+  model_family?: string | null;
+  abstention_reason?: string | null;
+  non_quantified_idea: boolean;
+  seconds_saved_claimed: false;
+  [key: string]: unknown;
+}
+
+export interface MLAnalysisContext {
+  status: "available" | "abstained" | "unavailable" | string;
+  optional: boolean;
+  model: MLModelContext | null;
+  dataset: Record<string, unknown>;
+  expected_profiles: Record<string, ExpectedInputProfile>;
+  section_pace: Record<string, Array<Record<string, unknown>>>;
+  recommendations: ScenarioRecommendation[];
+  support: {
+    minimum_required?: number;
+    overall?: number | null;
+    by_section?: Record<string, number | null>;
+  };
+  abstained: boolean;
+  abstention_reasons: string[];
+  scenario: Record<string, unknown>;
+  conditions: Record<string, unknown>;
+  authority: Record<string, unknown>;
 }
 
 export interface SessionAnalysis {
@@ -203,6 +289,13 @@ export interface SessionAnalysis {
   findings_all: AnalysisFinding[];
   lap_time_delta_reconciliation: Record<string, Record<string, number>>;
   quality_report: Record<string, unknown>;
+  detector_configuration: {
+    default_detectors?: string[];
+    experimental_detectors?: string[];
+    experimental_enabled?: boolean;
+    active_detector_count?: number;
+  };
+  ml_context: MLAnalysisContext;
   track_outline: TrackOutline | null;
 }
 
@@ -214,4 +307,33 @@ export interface AnalyzeSessionResponse {
   findings_top_count: number;
   findings_all_count: number;
   artifact_path: string;
+  detector_configuration: Record<string, unknown>;
+  ml_status: string;
+}
+
+export interface ManualConditions {
+  wetness?: number;
+  air_temp_c?: number;
+  track_temp_c?: number;
+  tyre_wear?: number;
+}
+
+export interface ManualConditionResponse {
+  session_id: string;
+  conditions: ManualConditions;
+  origin: string;
+}
+
+export interface ModelHealthResponse {
+  status: string;
+  champion: MLModelContext | null;
+  challengers: MLModelContext[];
+  fallback_reasons: string[];
+}
+
+export interface DataHealthResponse {
+  row_count: { raw: number; processed: number; total: number };
+  effective_laps: number | null;
+  source_imports: Array<Record<string, unknown>>;
+  fallback_reasons: string[];
 }

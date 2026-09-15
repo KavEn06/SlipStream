@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { AnalysisFinding, CornerDefinition, SessionAnalysis } from "../types";
+import type {
+  AnalysisFinding,
+  CornerDefinition,
+  ManualConditions,
+  SessionAnalysis,
+} from "../types";
+import { shapeManualConditionRequest } from "../utils/ml";
 import { CornerDetailView } from "./CornerDetailView";
 
 interface Props {
@@ -94,6 +100,8 @@ interface DetailHeaderProps {
 
 function DetailHeader({ finding, cornerDef }: DetailHeaderProps) {
   const tone = SEVERITY_TONE[finding.severity] ?? SEVERITY_TONE.minor;
+  const learned = finding.ml_context;
+  const recommendation = finding.scenario_recommendation;
   return (
     <div className="mb-4">
       <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -104,6 +112,9 @@ function DetailHeader({ finding, cornerDef }: DetailHeaderProps) {
           className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] ${tone}`}
         >
           {finding.severity}
+        </span>
+        <span className="inline-flex items-center rounded-full border border-border/70 bg-surface-2/84 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-text-secondary">
+          Observed telemetry
         </span>
       </div>
       <div className="flex items-start justify-between gap-3">
@@ -122,6 +133,45 @@ function DetailHeader({ finding, cornerDef }: DetailHeaderProps) {
       <p className="mt-2 text-sm text-text-secondary leading-relaxed">
         {finding.templated_text}
       </p>
+      {learned && (
+        <div className="mt-3 rounded-xl border border-border/60 bg-surface-3/55 p-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] uppercase tracking-[0.13em] text-text-muted">
+            <span className="text-accent">Learned context</span>
+            {learned.model?.version && <span>Model {learned.model.version}</span>}
+            {learned.section_key && <span>{learned.section_key}</span>}
+            {typeof learned.section_priority === "number" && (
+              <span>Priority {(learned.section_priority * 100).toFixed(0)}%</span>
+            )}
+            {typeof learned.support === "number" && (
+              <span>Support {(learned.support * 100).toFixed(0)}%</span>
+            )}
+          </div>
+          {learned.abstained && (
+            <p className="mt-1.5 text-xs text-amber-500">
+              Model abstained: {learned.abstention_reason || "unsupported telemetry context"}
+            </p>
+          )}
+          {!learned.abstained && typeof finding.measured_confidence === "number" && (
+            <p className="mt-1.5 text-[11px] text-text-muted">
+              Measured confidence {(finding.measured_confidence * 100).toFixed(0)}%;
+              learned support only tunes presentation confidence.
+            </p>
+          )}
+        </div>
+      )}
+      {recommendation && (
+        <div className="mt-3 rounded-xl border border-accent/20 bg-accent/8 p-3">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-accent">
+            Scenario idea · not a time promise
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-text-secondary">
+            {recommendation.cue}
+          </p>
+          <p className="mt-1 text-[10px] text-text-muted">
+            {recommendation.recommendation_id}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -134,6 +184,14 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
   const [showAll, setShowAll] = useState(false);
   const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
   const [findingsListOpen, setFindingsListOpen] = useState(true);
+  const [conditions, setConditions] = useState<Record<keyof ManualConditions, string>>({
+    wetness: "",
+    air_temp_c: "",
+    track_temp_c: "",
+    tyre_wear: "",
+  });
+  const [conditionsSaving, setConditionsSaving] = useState(false);
+  const [conditionsMessage, setConditionsMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!enabled) return;
@@ -161,6 +219,35 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!enabled) return;
+    void api
+      .getSessionConditions(sessionId)
+      .then((result) => {
+        setConditions({
+          wetness:
+            result.conditions.wetness === undefined
+              ? ""
+              : String(result.conditions.wetness),
+          air_temp_c:
+            result.conditions.air_temp_c === undefined
+              ? ""
+              : String(result.conditions.air_temp_c),
+          track_temp_c:
+            result.conditions.track_temp_c === undefined
+              ? ""
+              : String(result.conditions.track_temp_c),
+          tyre_wear:
+            result.conditions.tyre_wear === undefined
+              ? ""
+              : String(result.conditions.tyre_wear),
+        });
+      })
+      .catch(() => {
+        // Conditions are optional for filesystem-only and legacy sessions.
+      });
+  }, [enabled, sessionId]);
+
   // Auto-select first finding when analysis loads
   useEffect(() => {
     if (analysis) {
@@ -182,6 +269,30 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
       setError(err instanceof Error ? err.message : "Analysis failed");
     } finally {
       setRunning(false);
+    }
+  };
+
+  const handleSaveConditions = async () => {
+    let supplied: ManualConditions;
+    try {
+      supplied = shapeManualConditionRequest(conditions);
+    } catch (error) {
+      setConditionsMessage(
+        error instanceof Error ? error.message : "Invalid condition values.",
+      );
+      return;
+    }
+    setConditionsSaving(true);
+    setConditionsMessage(null);
+    try {
+      await api.updateSessionConditions(sessionId, supplied);
+      setConditionsMessage("Saved. Re-run analysis to apply these conditions.");
+    } catch (err) {
+      setConditionsMessage(
+        err instanceof Error ? err.message : "Could not save conditions",
+      );
+    } finally {
+      setConditionsSaving(false);
     }
   };
 
@@ -214,11 +325,23 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
             Where you're losing time
           </h3>
           {analysis && (
-            <p className="mt-1 text-xs text-text-muted">
-              Reference lap {analysis.reference_lap_number} · {analysis.findings_all.length}{" "}
-              finding{analysis.findings_all.length === 1 ? "" : "s"} ·{" "}
-              {analysis.analysis_version}
-            </p>
+            <>
+              <p className="mt-1 text-xs text-text-muted">
+                Reference lap {analysis.reference_lap_number} · {analysis.findings_all.length}{" "}
+                finding{analysis.findings_all.length === 1 ? "" : "s"} ·{" "}
+                {analysis.detector_configuration.active_detector_count ?? 7} detectors ·{" "}
+                {analysis.analysis_version}
+              </p>
+              <p className="mt-1 text-[11px] text-text-muted">
+                ML: {analysis.ml_context.status}
+                {analysis.ml_context.model?.version
+                  ? ` · ${analysis.ml_context.model.version}`
+                  : ""}
+                {analysis.ml_context.abstention_reasons.length > 0
+                  ? ` · ${analysis.ml_context.abstention_reasons.join(", ")}`
+                  : ""}
+              </p>
+            </>
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -231,6 +354,49 @@ export function CornerAnalysisPanel({ sessionId, enabled }: Props) {
             {running ? "Analyzing..." : analysis ? "Re-run Analysis" : "Run Analysis"}
           </button>
         </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-border/60 bg-surface-2/45 p-3">
+        <div className="flex flex-wrap items-end gap-2">
+          {(
+            [
+              ["wetness", "Wetness", "0–1"],
+              ["air_temp_c", "Air °C", "°C"],
+              ["track_temp_c", "Track °C", "°C"],
+              ["tyre_wear", "Tyre wear", "0–1"],
+            ] as const
+          ).map(([key, label, placeholder]) => (
+            <label key={key} className="min-w-[96px] flex-1">
+              <span className="text-[9px] uppercase tracking-[0.13em] text-text-muted">
+                {label}
+              </span>
+              <input
+                type="number"
+                step={key === "air_temp_c" || key === "track_temp_c" ? "0.5" : "0.05"}
+                placeholder={placeholder}
+                value={conditions[key]}
+                onChange={(event) =>
+                  setConditions((current) => ({
+                    ...current,
+                    [key]: event.target.value,
+                  }))
+                }
+                className="mt-1 h-9 w-full rounded-lg border border-border/70 bg-surface-1/80 px-2.5 text-xs text-text-primary outline-none focus:border-accent/50"
+              />
+            </label>
+          ))}
+          <button
+            type="button"
+            onClick={() => void handleSaveConditions()}
+            disabled={conditionsSaving}
+            className="motion-safe-color h-9 rounded-full border border-border/70 bg-surface-2/84 px-3 text-[10px] font-medium uppercase tracking-[0.13em] text-text-secondary hover:border-border-strong hover:text-text-primary disabled:opacity-50"
+          >
+            {conditionsSaving ? "Saving…" : "Save conditions"}
+          </button>
+        </div>
+        {conditionsMessage && (
+          <p className="mt-2 text-[11px] text-text-muted">{conditionsMessage}</p>
+        )}
       </div>
 
       {error && (

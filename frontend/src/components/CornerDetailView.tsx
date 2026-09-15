@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Area,
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -10,7 +11,13 @@ import {
   YAxis,
 } from "recharts";
 import { api } from "../api/client";
-import type { AnalysisFinding, CornerDefinition, LapData, TrackOutline } from "../types";
+import type {
+  AnalysisFinding,
+  CornerDefinition,
+  LapData,
+  TrackOutline,
+} from "../types";
+import { interpolateExpectedMetric } from "../utils/ml";
 import { CompareTrackMap } from "./CompareTrackMap";
 
 // Module-level cache: persists across component mounts within the page session.
@@ -48,10 +55,23 @@ interface ChartRow {
   baseThrottle?: number;
   candSteering: number;
   baseSteering?: number;
+  expectedSpeed?: number;
+  expectedSpeedLower?: number;
+  expectedSpeedRange?: number;
+  expectedThrottle?: number;
+  expectedThrottleLower?: number;
+  expectedThrottleRange?: number;
+  expectedBrake?: number;
+  expectedBrakeLower?: number;
+  expectedBrakeRange?: number;
+  expectedSteering?: number;
+  expectedSteeringLower?: number;
+  expectedSteeringRange?: number;
 }
 
 const CAND_COLOR = "#f472b6"; // pink-400 — driver's/advice lap
 const BASE_COLOR = "#7dd3fc"; // sky-300 — reference lap
+const EXPECTED_COLOR = "#fbbf24"; // amber-400 — learned expected profile
 
 const CHART_TOOLTIP_STYLE = {
   background: "rgba(14,14,20,0.92)",
@@ -205,6 +225,10 @@ interface MiniChartProps {
   data: ChartRow[];
   candKey: keyof ChartRow;
   baseKey: keyof ChartRow;
+  expectedKey?: keyof ChartRow;
+  expectedLowerKey?: keyof ChartRow;
+  expectedRangeKey?: keyof ChartRow;
+  expectedModelVersion?: string | null;
   label: string;
   domain?: [number | string, number | string];
   formatter: (v: number) => string;
@@ -219,6 +243,10 @@ function MiniChart({
   data,
   candKey,
   baseKey,
+  expectedKey,
+  expectedLowerKey,
+  expectedRangeKey,
+  expectedModelVersion,
   label,
   domain,
   formatter,
@@ -240,10 +268,19 @@ function MiniChart({
           <span className="inline-block h-[2px] w-3 rounded" style={{ background: BASE_COLOR }} />
           Lap {baseLapNumber} (ref)
         </span>
+        {expectedKey && (
+          <span className="flex items-center gap-1 text-[9px] text-text-muted">
+            <span
+              className="inline-block h-[2px] w-3 rounded"
+              style={{ background: EXPECTED_COLOR }}
+            />
+            Learned expected{expectedModelVersion ? ` · ${expectedModelVersion}` : ""}
+          </span>
+        )}
       </div>
       <div className="h-[88px]">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart
+          <ComposedChart
             data={data}
             syncId={syncId}
             margin={{ top: 2, right: 4, left: 0, bottom: 0 }}
@@ -295,6 +332,25 @@ function MiniChart({
                 strokeWidth={1}
               />
             ))}
+            {expectedLowerKey && expectedRangeKey && (
+              <>
+                <Area
+                  dataKey={expectedLowerKey as string}
+                  stackId="expected-band"
+                  stroke="none"
+                  fill="transparent"
+                  isAnimationActive={false}
+                />
+                <Area
+                  dataKey={expectedRangeKey as string}
+                  stackId="expected-band"
+                  stroke="none"
+                  fill={EXPECTED_COLOR}
+                  fillOpacity={0.16}
+                  isAnimationActive={false}
+                />
+              </>
+            )}
             <Line
               dataKey={baseKey as string}
               stroke={BASE_COLOR}
@@ -310,7 +366,17 @@ function MiniChart({
               strokeWidth={2.8}
               isAnimationActive={false}
             />
-          </LineChart>
+            {expectedKey && (
+              <Line
+                dataKey={expectedKey as string}
+                stroke={EXPECTED_COLOR}
+                dot={false}
+                strokeWidth={1.6}
+                strokeDasharray="5 3"
+                isAnimationActive={false}
+              />
+            )}
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
     </div>
@@ -382,6 +448,8 @@ export function CornerDetailView({
   if (candLap && baseLap) {
     const candidateSamples = buildLapMetricSamples(candLap.records);
     const baselineSamples = buildLapMetricSamples(baseLap.records);
+    const expectedProfile =
+      finding.ml_context?.expected_input_profile ?? null;
 
     for (const progressNorm of buildChartGrid(approachNorm, endNorm)) {
       const candSpeed = interpolateLapMetric(candidateSamples, progressNorm, "speed");
@@ -392,6 +460,78 @@ export function CornerDetailView({
       const baseBrake = interpolateLapMetric(baselineSamples, progressNorm, "brake");
       const baseThrottle = interpolateLapMetric(baselineSamples, progressNorm, "throttle");
       const baseSteering = interpolateLapMetric(baselineSamples, progressNorm, "steering");
+      const expectedSpeed = interpolateExpectedMetric(
+        expectedProfile,
+        progressNorm,
+        "speed",
+        "expected",
+      );
+      const expectedSpeedLower = interpolateExpectedMetric(
+        expectedProfile,
+        progressNorm,
+        "speed",
+        "lower",
+      );
+      const expectedSpeedUpper = interpolateExpectedMetric(
+        expectedProfile,
+        progressNorm,
+        "speed",
+        "upper",
+      );
+      const expectedBrake = interpolateExpectedMetric(
+        expectedProfile,
+        progressNorm,
+        "brake",
+        "expected",
+      );
+      const expectedBrakeLower = interpolateExpectedMetric(
+        expectedProfile,
+        progressNorm,
+        "brake",
+        "lower",
+      );
+      const expectedBrakeUpper = interpolateExpectedMetric(
+        expectedProfile,
+        progressNorm,
+        "brake",
+        "upper",
+      );
+      const expectedThrottle = interpolateExpectedMetric(
+        expectedProfile,
+        progressNorm,
+        "throttle",
+        "expected",
+      );
+      const expectedThrottleLower = interpolateExpectedMetric(
+        expectedProfile,
+        progressNorm,
+        "throttle",
+        "lower",
+      );
+      const expectedThrottleUpper = interpolateExpectedMetric(
+        expectedProfile,
+        progressNorm,
+        "throttle",
+        "upper",
+      );
+      const expectedSteering = interpolateExpectedMetric(
+        expectedProfile,
+        progressNorm,
+        "steering",
+        "expected",
+      );
+      const expectedSteeringLower = interpolateExpectedMetric(
+        expectedProfile,
+        progressNorm,
+        "steering",
+        "lower",
+      );
+      const expectedSteeringUpper = interpolateExpectedMetric(
+        expectedProfile,
+        progressNorm,
+        "steering",
+        "upper",
+      );
 
       if (
         candSpeed === undefined &&
@@ -417,6 +557,30 @@ export function CornerDetailView({
         baseThrottle,
         candSteering: candSteering ?? 0,
         baseSteering,
+        expectedSpeed,
+        expectedSpeedLower,
+        expectedSpeedRange:
+          expectedSpeedLower !== undefined && expectedSpeedUpper !== undefined
+            ? expectedSpeedUpper - expectedSpeedLower
+            : undefined,
+        expectedBrake,
+        expectedBrakeLower,
+        expectedBrakeRange:
+          expectedBrakeLower !== undefined && expectedBrakeUpper !== undefined
+            ? expectedBrakeUpper - expectedBrakeLower
+            : undefined,
+        expectedThrottle,
+        expectedThrottleLower,
+        expectedThrottleRange:
+          expectedThrottleLower !== undefined && expectedThrottleUpper !== undefined
+            ? expectedThrottleUpper - expectedThrottleLower
+            : undefined,
+        expectedSteering,
+        expectedSteeringLower,
+        expectedSteeringRange:
+          expectedSteeringLower !== undefined && expectedSteeringUpper !== undefined
+            ? expectedSteeringUpper - expectedSteeringLower
+            : undefined,
       });
     }
   }
@@ -461,6 +625,9 @@ export function CornerDetailView({
     {
       candKey: keyof ChartRow;
       baseKey: keyof ChartRow;
+      expectedKey: keyof ChartRow;
+      expectedLowerKey: keyof ChartRow;
+      expectedRangeKey: keyof ChartRow;
       label: string;
       domain?: [number | string, number | string];
       formatter: (v: number) => string;
@@ -469,12 +636,18 @@ export function CornerDetailView({
     speed: {
       candKey: "candSpeed",
       baseKey: "baseSpeed",
+      expectedKey: "expectedSpeed",
+      expectedLowerKey: "expectedSpeedLower",
+      expectedRangeKey: "expectedSpeedRange",
       label: "Speed",
       formatter: (v) => `${v.toFixed(0)} kph`,
     },
     throttle: {
       candKey: "candThrottle",
       baseKey: "baseThrottle",
+      expectedKey: "expectedThrottle",
+      expectedLowerKey: "expectedThrottleLower",
+      expectedRangeKey: "expectedThrottleRange",
       label: "Throttle",
       domain: [0, 1],
       formatter: (v) => `${(v * 100).toFixed(0)}%`,
@@ -482,6 +655,9 @@ export function CornerDetailView({
     brake: {
       candKey: "candBrake",
       baseKey: "baseBrake",
+      expectedKey: "expectedBrake",
+      expectedLowerKey: "expectedBrakeLower",
+      expectedRangeKey: "expectedBrakeRange",
       label: "Brake",
       domain: [0, 1],
       formatter: (v) => `${(v * 100).toFixed(0)}%`,
@@ -489,6 +665,9 @@ export function CornerDetailView({
     steering: {
       candKey: "candSteering",
       baseKey: "baseSteering",
+      expectedKey: "expectedSteering",
+      expectedLowerKey: "expectedSteeringLower",
+      expectedRangeKey: "expectedSteeringRange",
       label: "Steering",
       formatter: (v) => v.toFixed(2),
     },
@@ -554,6 +733,22 @@ export function CornerDetailView({
                       data={chartData}
                       candKey={config.candKey}
                       baseKey={config.baseKey}
+                      expectedKey={
+                        finding.ml_context?.expected_input_profile
+                          ? config.expectedKey
+                          : undefined
+                      }
+                      expectedLowerKey={
+                        finding.ml_context?.expected_input_profile
+                          ? config.expectedLowerKey
+                          : undefined
+                      }
+                      expectedRangeKey={
+                        finding.ml_context?.expected_input_profile
+                          ? config.expectedRangeKey
+                          : undefined
+                      }
+                      expectedModelVersion={finding.ml_context?.model?.version}
                       label={config.label}
                       domain={config.domain}
                       formatter={config.formatter}

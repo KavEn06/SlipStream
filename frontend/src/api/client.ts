@@ -3,10 +3,14 @@ import type {
   CaptureStartRequest,
   CaptureStatus,
   CompareCandidatesResponse,
+  DataHealthResponse,
   DeleteResponse,
   LapData,
   LapOverlayResponse,
   LapOverlaySelection,
+  ManualConditionResponse,
+  ManualConditions,
+  ModelHealthResponse,
   ProcessResponse,
   SessionAnalysis,
   SessionDetail,
@@ -98,11 +102,27 @@ export const api = {
   stopCapture: () =>
     fetchJson<CaptureStatus>("/capture/stop", { method: "POST" }),
 
-  analyzeSession: (id: string) =>
+  analyzeSession: (id: string, options?: { experimental_detectors?: boolean }) =>
     fetchJson<AnalyzeSessionResponse>(`/sessions/${id}/analyze`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: options ? JSON.stringify(options) : undefined,
     }),
 
   getSessionAnalysis: (id: string) =>
     fetchJson<SessionAnalysis>(`/sessions/${id}/analysis`),
+
+  getSessionConditions: (id: string) =>
+    fetchJson<ManualConditionResponse>(`/sessions/${id}/conditions`),
+
+  updateSessionConditions: (id: string, conditions: ManualConditions) =>
+    fetchJson<ManualConditionResponse>(`/sessions/${id}/conditions`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(conditions),
+    }),
+
+  getModelHealth: () => fetchJson<ModelHealthResponse>("/ml/model-health"),
+
+  getDataHealth: () => fetchJson<DataHealthResponse>("/ml/data-health"),
 };
