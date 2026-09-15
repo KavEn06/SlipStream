@@ -46,3 +46,4 @@ src/reference/
 frontend/node_modules/
 frontend/dist/
 *.tsbuildinfo
+.gstack/

@@ -1,37 +1,109 @@
 # SlipStream
 
-**A telemetry-first driving coach for sim racing.** SlipStream captures live Forza telemetry, imports real Assetto Corsa datasets, stores everything in PostgreSQL, and turns each lap into ranked, corner-by-corner coaching with measured time loss.
+**A telemetry-first driving coach for sim racing.** SlipStream captures live Forza telemetry, imports real Assetto Corsa datasets, stores everything in PostgreSQL, and turns each lap into ranked, corner-by-corner coaching with measured time loss. On top of that, leakage-safe **scikit-learn and PyTorch models** learn expected throttle, brake, steering, and speed bands, then propose small, guarded section ideas.
 
 [![Verification](https://github.com/KavEn06/SlipStream/actions/workflows/verification.yml/badge.svg)](https://github.com/KavEn06/SlipStream/actions/workflows/verification.yml)
 ![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?logo=scikitlearn&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white)
 ![React](https://img.shields.io/badge/React_19-20232A?logo=react&logoColor=61DAFB)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-357_backend_%2B_6_frontend-2ea44f)
 
 ![Session analysis: a late-braking finding at T11, ranked by seconds lost, with a track overlay](docs/screenshots/analysis.png)
 
-Most sim-racing tools show graphs and leave the reading to you. SlipStream does the reading: it reconstructs laps, finds corners, compares them to your best lap, and explains where time was lost in plain English.
+Most sim-racing tools show graphs and leave the reading to you. SlipStream does the reading: it reconstructs laps, finds corners, compares them to your best lap, and explains where time was lost in plain English. The ML layer then answers a second question the rules cannot: *what do comparable fast laps actually do with the inputs through this corner?*
 
 ```
-live UDP / Parquet  →  canonical laps  →  corner segmentation  →  7 detectors  →  ranked findings  →  React UI
+live UDP / Parquet  →  PostgreSQL  →  canonical laps  →  7 detectors
+                                              ↘ leakage-safe models → expected bands + scenario ideas
 ```
 
 ---
 
-## At a glance
+## What's in it
+
+**Capture and ingest**
+- Live Forza UDP capture (managed subprocess, per-lap CSV + database write)
+- Hugging Face Parquet import for Assetto Corsa (Spa, Nürburgring GP, Imola — 260,031 rows at 100 Hz)
+- Geometric lap reconstruction when the source has no usable lap counter
+- One-shot importer for existing raw/processed artifacts
+- Idempotent, bounded, set-based upserts so re-imports are safe
+
+**Processing and coaching**
+- Canonical processed laps: distance alignment, resampling, derived features
+- Automatic corner segmentation (entry / center / exit, compound corners, 2D + 3D track map)
+- Seven default detectors with measured time loss, confidence, and templated explanations
+- Findings pipeline: suppression, per-corner caps, lap-delta reconciliation
+- Multi-lap overlay (up to 6 same-track laps, progress or elapsed time)
+- Manual session conditions (wetness, air/track temp, tyre wear)
+
+**Machine learning**
+- scikit-learn random forest + PyTorch Conv1d sequence model, same experiment
+- Expected throttle / brake / steering / speed bands on a 64-point grid
+- Section pace, whole-lap pace, pairwise faster-lap ranking
+- Grouped whole-lap splits (no row leakage), 20% immutable holdout, 3-fold CV
+- Guarded scenario ideas with a whole-lap veto and OOD abstention
+- Checksummed model registry (champion / challenger) in PostgreSQL
+- Helpful / not-helpful ratings on ideas (stored, not used for training)
+
+**Product UI**
+- React dashboard: live capture, session library, session detail, lap review, compare, analysis
+- Expected-band overlays and scenario cards on the corner view
+- FastAPI: sessions, laps, compare, capture, analysis, conditions, ratings, ML health
+
+**Engineering**
+- PostgreSQL as source of truth, SQLite for tests, filesystem fallback for old artifacts
+- Alembic migrations, Docker Compose, GitHub Actions with a real Postgres service
+- 357 backend tests + 6 frontend tests, typecheck, production build
+- 500,001-row ingest benchmark: 37.8 s, 13,242 rows/s, 6.1 ms indexed range query
+
+### Stack
+
+| Layer | Tools |
+|---|---|
+| Language | Python 3.9+ (CI on 3.12), TypeScript |
+| API | FastAPI, Uvicorn, Pydantic |
+| Data / storage | pandas, NumPy, PyArrow, PostgreSQL 16, SQLite, SQLAlchemy 2, Alembic, psycopg 3 |
+| ML | scikit-learn, PyTorch, joblib |
+| Ingest | Forza UDP, Hugging Face Hub |
+| Frontend | React 19, Vite, Tailwind CSS 4, Recharts, React Router |
+| Infra / CI | Docker Compose, GitHub Actions, unittest, Vitest |
+
+---
+
+## What the models actually do
+
+This is a supervised telemetry problem, not a racecraft chatbot. A champion model is trained offline on whole laps, registered with a checksum, and loaded at analysis time.
+
+**It predicts, for every resampled point on a lap:**
+
+- expected **throttle, brake, steering, and speed**, plus 10th–90th percentile bands (256 values per 64-point lap, targeting ~80% interval coverage)
+- **section pace** on 8 track segments and a **whole-lap time**
+- **pairwise ranking**: which of two comparable laps should be faster
+
+**It can then:**
+
+- overlay those expected bands on the driver’s actual traces in the React UI
+- perturb one driver-actionable lever at a time (brake onset, min-speed, throttle pickup, coasting, steering) within a 2–6% bound scaled to that driver’s consistency
+- veto any idea that helps a corner but is predicted to slow the full lap
+- abstain on wet / cold / high-wear laps and fall back to a labelled conservative cue
+
+Two families compete in the same experiment: a **64-tree random forest** with residual-quantile calibration, and a **32-dim Conv1d sequence net** (4 heads: profiles, section time, lap time, ranking). Selection uses 3-fold **grouped** CV on an 80/20 whole-lap split so no row from the same lap leaks into validation.
 
 | | |
 |---|---|
-| **Product** | Capture, process, compare, and coach from real telemetry |
-| **Stack** | Python, FastAPI, PostgreSQL, SQLAlchemy 2, React 19, TypeScript, scikit-learn, PyTorch |
-| **Tests** | 357 backend tests, 6 frontend tests, strict TypeScript, production build |
-| **CI** | GitHub Actions with a real PostgreSQL service, migration round-trip, and frontend typecheck/build |
-| **Scale** | 260,031 real 100 Hz rows pinned from Hugging Face; 500,001-row ingest in 37.8 s (13,242 rows/s) |
-| **ML stance** | Optional, leakage-safe, observational. Never overrides a measured delta |
+| Real corpus | **260,031** native 100 Hz rows across Spa, Nürburgring GP, Imola |
+| Independent laps in that corpus | **30** complete source laps (5 / 10 / 15) — row count is not sample size |
+| Features | 13 numeric profile features, 3 identity embeddings, **21** section features, 4 condition channels |
+| Holdout / CV | 20% immutable whole-lap holdout, 3 grouped folds, seed `1729` |
+| Champion objective | 35% input MAE · 20% section time · 20% lap time · 15% ranking · 5% coverage · 5% event timing |
+| Typical offline champion | ~**0.82** pairwise faster-lap ranking · ~**0.80** band coverage · throttle/brake MAE ~**0.06–0.08** |
+| What it is not | Not causal, not a seconds-saved promise, not live/online learning |
 
-**What this repo is meant to show:** a full ingest-to-UI data product, not a notebook. Deterministic analysis is the source of truth. Learned bands and scenario ideas are labelled, gated, and optional.
+The 30-lap / 260k-row split is the whole point of the ML design: lots of high-rate samples, very few independent examples, so splits are by lap, not by row.
 
 ---
 
@@ -143,22 +215,26 @@ Two research detectors, `abrupt_brake_release` and `long_coasting_phase`, sit be
 
 ### Real telemetry
 
-Three Assetto Corsa datasets are pinned to immutable Hugging Face revisions in [`src/ingest/manifests.py`](src/ingest/manifests.py): Spa-Francorchamps, Nürburgring GP, and Imola. Together they are **260,031 native rows at 100 Hz**. Upstream lap counters are unusable, so laps are reconstructed from start/finish crossings with duration gates. Ambiguous ranges are rejected. Details: [`docs/data-sources.md`](docs/data-sources.md).
+Three Assetto Corsa datasets are pinned to immutable Hugging Face revisions in [`src/ingest/manifests.py`](src/ingest/manifests.py): Spa-Francorchamps, Nürburgring GP, and Imola. Together they are **260,031 native rows at 100 Hz** and **30** complete source laps. Upstream lap counters are unusable, so laps are reconstructed from start/finish crossings with duration gates. Ambiguous ranges are rejected. Details: [`docs/data-sources.md`](docs/data-sources.md).
+
+### Dataset construction
+
+Each accepted lap is resampled onto a **64-point** normalized-progress grid and cut into **8** sections. The builder emits three aligned frames (samples, sections, laps) so a row-level model cannot see the future of the same lap. Faster valid laps are weighted more heavily as evidence, not as expert truth. Weather, temps, and tyre wear are features when present; missing values stay missing.
 
 ### Leakage-safe training
 
-Each accepted whole lap is resampled onto a fixed progress grid. Splits are grouped by lap and session so adjacent rows never land on both sides of a train/validation cut. An immutable holdout is reserved before any search.
+Splits are grouped by lap and session. An immutable 20% holdout is carved out with a fixed salt **before** any hyperparameter search. sklearn tries 3 candidates (64-tree forests, residual quantile bands); torch tries 2 (32 hidden units, kernel-5/3 Conv1d, dropout 0.10, early stopping patience 4, max 20 epochs). Repeated training stops when grouped validation plateaus.
 
 ### Two model families
 
-- **scikit-learn random forest** with residual-quantile calibration for expected throttle, brake, steering, and speed bands, plus section and lap pace.
-- **Compact PyTorch sequence model** with expected-input, section-time, lap-time, and pairwise ranking heads.
+- **scikit-learn random forest** — interpretable tabular baseline. Predicts 4 input channels with 10th/90th residual bands, plus section and lap pace.
+- **PyTorch sequence model** — compact 1D conv encoder with identity embeddings (sim / track / car) and four heads: expected trace, section time, lap time, pairwise ranking.
 
-An offline runner does grouped cross-validation with fixed seeds, scores candidates with a declared composite metric, and registers artifacts with SHA-256 checksums. The registry exposes one **champion** and keeps challengers.
+Artifacts, feature definitions, source revisions, and SHA-256 checksums land in PostgreSQL. The registry marks one **champion** per run and keeps challengers. Unseen track/car combinations get an explicit uncertainty penalty rather than a fake confident trace.
 
 ### Guarded scenario ideas
 
-The scorer perturbs one driver-actionable feature (brake onset, min speed, throttle pickup, coasting, steering) within a bound scaled to that driver's consistency. An idea is shown only if every model family predicts a section improvement, the whole-lap prediction does not regress, nearby support is sufficient, the families agree, and uncertainty is bounded. Wet, cold, or high-wear conditions abstain and fall back to a labelled conservative cue.
+The scorer perturbs one of five levers — brake onset (±3.5%), min-speed (±4%), throttle pickup (±3.5%), coasting (±6%), steering activity (±2%) — scaled down for inconsistent drivers. An idea is shown only if every configured family predicts a section improvement, the whole-lap prediction does not regress, nearby support is ≥ 0.35, families agree, and relative uncertainty stays under 0.35. Wet, cold, or high-wear conditions abstain and fall back to a labelled conservative cue.
 
 Every idea has a recommendation ID, model version, hypothesis, and driver baseline. UI ratings stay `training_eligible: false`.
 
