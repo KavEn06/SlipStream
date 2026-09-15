@@ -17,9 +17,17 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 
+from src.api.models import (
+    AnalyzeSessionRequest,
+    AnalyzeSessionResponse,
+    ManualConditionResponse,
+    ManualConditionUpdateRequest,
+    SessionAnalysisResponse,
+)
 from src.api.services import session_scanner
 from src.analysis.session_analysis import (
     ANALYSIS_ARTIFACT_FILENAME,
@@ -27,6 +35,7 @@ from src.analysis.session_analysis import (
     run,
 )
 from src.core.config import PROCESSED_DATA_ROOT
+from src.services.telemetry_store import get_default_telemetry_store
 
 
 router = APIRouter(prefix="/api/sessions", tags=["analysis"])
@@ -90,6 +99,19 @@ def _normalize_analysis_payload_for_output(
                     finding["lap_number"],
                     stored_to_display,
                 )
+                finding_ml_context = finding.get("ml_context")
+                if isinstance(finding_ml_context, dict):
+                    expected_profile = finding_ml_context.get(
+                        "expected_input_profile"
+                    )
+                    if (
+                        isinstance(expected_profile, dict)
+                        and "lap_number" in expected_profile
+                    ):
+                        expected_profile["lap_number"] = _map_display_lap_number(
+                            expected_profile["lap_number"],
+                            stored_to_display,
+                        )
 
     straight_records = normalized.get("straight_records")
     if isinstance(straight_records, list):
@@ -134,6 +156,15 @@ def _normalize_analysis_payload_for_output(
                     reference_record,
                     stored_to_display,
                 )
+            expected_profile = baseline.get("champion_expected_input_profile")
+            if (
+                isinstance(expected_profile, dict)
+                and "lap_number" in expected_profile
+            ):
+                expected_profile["lap_number"] = _map_display_lap_number(
+                    expected_profile["lap_number"],
+                    stored_to_display,
+                )
 
     reconciliation = normalized.get("lap_time_delta_reconciliation")
     if isinstance(reconciliation, dict):
@@ -173,18 +204,52 @@ def _normalize_analysis_payload_for_output(
                 normalized_per_lap[str(display_lap_number)] = entry
             quality_report["per_lap"] = normalized_per_lap
 
+    ml_context = normalized.get("ml_context")
+    if isinstance(ml_context, dict):
+        for key in ("expected_profiles", "section_pace"):
+            values = ml_context.get(key)
+            if not isinstance(values, dict):
+                continue
+            normalized_values: dict[str, object] = {}
+            for lap_number, value in values.items():
+                display_lap_number = _map_display_lap_number(
+                    lap_number, stored_to_display
+                )
+                if isinstance(value, dict) and "lap_number" in value:
+                    value["lap_number"] = display_lap_number
+                normalized_values[str(display_lap_number)] = value
+            ml_context[key] = normalized_values
+
     return normalized
 
 
-@router.post("/{session_id}/analyze")
-def analyze_session(session_id: str):
+@router.post("/{session_id}/analyze", response_model=AnalyzeSessionResponse)
+def analyze_session(
+    session_id: str,
+    request: Optional[AnalyzeSessionRequest] = None,
+):
     """Run the analysis pipeline and persist ``session_analysis.json``."""
     session_dir = PROCESSED_DATA_ROOT / session_id
     if not session_dir.is_dir():
         raise HTTPException(status_code=404, detail="Processed session not found")
 
+    datastore = get_default_telemetry_store()
     try:
-        result = run(session_id, write=True, strict_reconciliation=True)
+        database_usable = datastore is not None
+        if datastore is not None:
+            datastore.get_session_detail(session_id)
+    except Exception:
+        database_usable = False
+    try:
+        result = run(
+            session_id,
+            write=True,
+            strict_reconciliation=True,
+            datastore=datastore if database_usable else None,
+            experimental_detectors=(
+                request.experimental_detectors if request is not None else None
+            ),
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except ReconciliationError as exc:
@@ -207,12 +272,24 @@ def analyze_session(session_id: str):
         "findings_top_count": len(result.findings_top),
         "findings_all_count": len(result.findings_all),
         "artifact_path": str(session_dir / ANALYSIS_ARTIFACT_FILENAME),
+        "detector_configuration": dict(result.detector_configuration),
+        "ml_status": str(result.ml_context.get("status", "unavailable")),
     }
 
 
-@router.get("/{session_id}/analysis")
+@router.get("/{session_id}/analysis", response_model=SessionAnalysisResponse)
 def get_session_analysis(session_id: str):
     """Return the persisted analysis payload with display lap numbers."""
+    datastore = get_default_telemetry_store()
+    try:
+        database_payload = datastore.get_latest_analysis(session_id) if datastore is not None else None
+    except Exception:
+        database_payload = None
+    if database_payload is not None:
+        normalized_payload = _normalize_analysis_payload_for_output(session_id, database_payload)
+        normalized_payload["track_outline"] = session_scanner.get_track_outline(session_id)
+        return normalized_payload
+
     artifact = PROCESSED_DATA_ROOT / session_id / ANALYSIS_ARTIFACT_FILENAME
     if not artifact.is_file():
         raise HTTPException(
@@ -234,3 +311,92 @@ def get_session_analysis(session_id: str):
     normalized_payload = _normalize_analysis_payload_for_output(session_id, payload)
     normalized_payload["track_outline"] = session_scanner.get_track_outline(session_id)
     return normalized_payload
+
+
+@router.get(
+    "/{session_id}/conditions",
+    response_model=ManualConditionResponse,
+)
+def get_session_conditions(session_id: str):
+    datastore = get_default_telemetry_store()
+    if datastore is not None:
+        try:
+            if datastore.get_session_detail(session_id) is not None:
+                return {
+                    "session_id": session_id,
+                    "conditions": datastore.get_session_conditions(session_id),
+                    "origin": "manual",
+                }
+        except Exception:
+            pass
+    metadata_path = PROCESSED_DATA_ROOT / session_id / "metadata.json"
+    if not metadata_path.is_file():
+        raise HTTPException(status_code=404, detail="Processed session not found")
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=500, detail="Session metadata is unreadable") from exc
+    conditions = (
+        dict(metadata.get("conditions") or {})
+        if isinstance(metadata, dict)
+        else {}
+    )
+    return {
+        "session_id": session_id,
+        "conditions": conditions,
+        "origin": "manual",
+    }
+
+
+@router.patch(
+    "/{session_id}/conditions",
+    response_model=ManualConditionResponse,
+)
+def update_session_conditions(
+    session_id: str,
+    request: ManualConditionUpdateRequest,
+):
+    supplied = request.supplied()
+    if not supplied:
+        raise HTTPException(
+            status_code=422,
+            detail="At least one condition override is required",
+        )
+    datastore = get_default_telemetry_store()
+    if datastore is not None:
+        try:
+            updated = datastore.update_session_conditions(session_id, supplied)
+        except Exception:
+            updated = None
+        if updated is not None:
+            return {
+                "session_id": session_id,
+                "conditions": updated,
+                "origin": "manual",
+            }
+
+    metadata_path = PROCESSED_DATA_ROOT / session_id / "metadata.json"
+    if not metadata_path.is_file():
+        raise HTTPException(status_code=404, detail="Processed session not found")
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if not isinstance(metadata, dict):
+            raise ValueError("unexpected metadata shape")
+        conditions = (
+            dict(metadata.get("conditions") or {})
+            if isinstance(metadata.get("conditions"), dict)
+            else {}
+        )
+        conditions.update(supplied)
+        metadata["conditions"] = conditions
+        metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not persist manual conditions",
+        ) from exc
+    return {
+        "session_id": session_id,
+        "conditions": conditions,
+        "origin": "manual",
+    }

@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.api.routes import analysis as analysis_routes
+from src.api.models import ManualConditionUpdateRequest
 from src.api.services import session_scanner
 
 
@@ -197,6 +198,33 @@ class AnalysisRouteTests(unittest.TestCase):
         self.assertIsNotNone(payload["track_outline"])
         self.assertEqual(payload["track_outline"]["reference_lap_number"], 2)
         self.assertEqual(payload["track_outline"]["source_lap_numbers"], [1, 2])
+
+    def test_manual_conditions_round_trip_for_filesystem_session(self) -> None:
+        session_id = "session_conditions"
+        processed_dir = self.processed_root / session_id
+        processed_dir.mkdir(parents=True)
+        (processed_dir / "metadata.json").write_text(
+            json.dumps({"session_id": session_id, "conditions": {"wetness": 0.0}}),
+            encoding="utf-8",
+        )
+        with self._patch_data_roots(), patch.object(
+            analysis_routes,
+            "get_default_telemetry_store",
+            return_value=None,
+        ):
+            updated = analysis_routes.update_session_conditions(
+                session_id,
+                ManualConditionUpdateRequest(
+                    wetness=0.4,
+                    track_temp_c=17.5,
+                    tyre_wear=0.2,
+                ),
+            )
+            loaded = analysis_routes.get_session_conditions(session_id)
+
+        self.assertEqual(updated["conditions"]["wetness"], 0.4)
+        self.assertEqual(loaded["conditions"]["track_temp_c"], 17.5)
+        self.assertEqual(loaded["conditions"]["tyre_wear"], 0.2)
 
     def _patch_data_roots(self):
         stack = ExitStack()

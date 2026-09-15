@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-from src.api.routes import analysis, capture, compare, laps, sessions
+from src.api.routes import analysis, capture, compare, laps, ml, sessions
 
 app = FastAPI(title="SlipStream API", version="0.1.0")
 
@@ -22,6 +22,7 @@ app.include_router(laps.router)
 app.include_router(compare.router)
 app.include_router(capture.router)
 app.include_router(analysis.router)
+app.include_router(ml.router)
 
 
 @app.get("/api/health")
