@@ -33,52 +33,89 @@ flowchart LR
 
 ## What's in it
 
-**Capture and ingest**
-- Live Forza UDP capture
-- Hugging Face Parquet import (Spa, Nürburgring GP, Imola)
+<table>
+<tr>
+<td width="50%" valign="top">
+
+#### Capture & ingest
+
+`Forza UDP` `Parquet` `Hugging Face`
+
+- Live Forza capture
+- Spa · Nürburgring GP · Imola
 - Geometric lap reconstruction
 - Existing-artifact importer
 - Idempotent bounded upserts
 
-**Processing and coaching**
+</td>
+<td width="50%" valign="top">
+
+#### Processing & coaching
+
+`7 detectors` `time-loss` `2D + 3D`
+
 - Canonical processed laps
-- Automatic corner segmentation (2D + 3D map)
-- Seven detectors with measured time loss
+- Automatic corner segmentation
 - Findings pipeline (suppression, caps, reconciliation)
 - Multi-lap overlay (up to 6)
 - Manual session conditions
 
-**Machine learning**
-- sklearn random forest + PyTorch sequence model
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+#### Machine learning
+
+`sklearn` `PyTorch` `grouped CV`
+
+- Random forest + Conv1d sequence model
 - Expected throttle / brake / steering / speed bands
 - Section pace, lap pace, pairwise ranking
-- Grouped whole-lap splits
-- Guarded scenario ideas with a whole-lap veto
+- Leakage-safe whole-lap splits
+- Guarded ideas with a whole-lap veto
 - Checksummed champion registry
-- Helpful / not-helpful ratings (not used for training)
+- Helpful / not-helpful ratings *(not used for training)*
 
-**Product UI**
-- Dashboard, session library, session detail
-- Lap review, multi-lap compare, corner analysis
-- FastAPI for sessions, capture, analysis, ratings, ML health
+</td>
+<td width="50%" valign="top">
 
-**Engineering**
-- PostgreSQL + SQLite tests + filesystem fallback
-- Alembic, Docker Compose, GitHub Actions
-- 357 backend tests + 6 frontend tests
-- 500,001-row ingest benchmark
+#### Product UI
+
+`React 19` `FastAPI` `Recharts`
+
+- Dashboard · session library · session detail
+- Lap review · multi-lap compare · corner analysis
+- Expected-band overlays and scenario cards
+- Sessions, capture, analysis, ratings, ML health
+
+</td>
+</tr>
+</table>
+
+| Storage | Tests | Ingest |
+|:---:|:---:|:---:|
+| PostgreSQL · SQLite · Alembic | **357** backend · **6** frontend | **500,001** rows · **13,242**/s · **6.1 ms** query |
+| Docker Compose · GitHub Actions | unittest · Vitest · typecheck | filesystem fallback |
 
 ### Stack
 
-| Layer | Tools |
-|---|---|
-| Language | Python 3.9+ (CI on 3.12), TypeScript |
-| API | FastAPI, Uvicorn, Pydantic |
-| Data / storage | pandas, NumPy, PyArrow, PostgreSQL 16, SQLite, SQLAlchemy 2, Alembic, psycopg 3 |
-| ML | scikit-learn, PyTorch, joblib |
-| Ingest | Forza UDP, Hugging Face Hub |
-| Frontend | React 19, Vite, Tailwind CSS 4, Recharts, React Router |
-| Infra / CI | Docker Compose, GitHub Actions, unittest, Vitest |
+<p>
+<img alt="Python" src="https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white">
+<img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white">
+<img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white">
+<img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white">
+<img alt="SQLAlchemy" src="https://img.shields.io/badge/SQLAlchemy-2-D71F00?style=for-the-badge">
+<img alt="scikit-learn" src="https://img.shields.io/badge/scikit--learn-F7931E?style=for-the-badge&logo=scikitlearn&logoColor=white">
+<img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white">
+<img alt="React" src="https://img.shields.io/badge/React-19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB">
+<img alt="Vite" src="https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white">
+<img alt="Tailwind" src="https://img.shields.io/badge/Tailwind-4-38B2AC?style=for-the-badge&logo=tailwindcss&logoColor=white">
+<img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white">
+<img alt="GitHub Actions" src="https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white">
+</p>
+
+pandas · NumPy · PyArrow · Alembic · psycopg 3 · Pydantic · Uvicorn · Recharts · React Router · joblib · Hugging Face Hub · unittest · Vitest
 
 ---
 
