@@ -34,39 +34,39 @@ flowchart LR
 ## What's in it
 
 **Capture and ingest**
-- Live Forza UDP capture (managed subprocess, per-lap CSV + database write)
-- Hugging Face Parquet import for Assetto Corsa (Spa, Nürburgring GP, Imola — 260,031 rows at 100 Hz)
-- Geometric lap reconstruction when the source has no usable lap counter
-- One-shot importer for existing raw/processed artifacts
-- Idempotent, bounded, set-based upserts so re-imports are safe
+- Live Forza UDP capture
+- Hugging Face Parquet import (Spa, Nürburgring GP, Imola)
+- Geometric lap reconstruction
+- Existing-artifact importer
+- Idempotent bounded upserts
 
 **Processing and coaching**
-- Canonical processed laps: distance alignment, resampling, derived features
-- Automatic corner segmentation (entry / center / exit, compound corners, 2D + 3D track map)
-- Seven default detectors with measured time loss, confidence, and templated explanations
-- Findings pipeline: suppression, per-corner caps, lap-delta reconciliation
-- Multi-lap overlay (up to 6 same-track laps, progress or elapsed time)
-- Manual session conditions (wetness, air/track temp, tyre wear)
+- Canonical processed laps
+- Automatic corner segmentation (2D + 3D map)
+- Seven detectors with measured time loss
+- Findings pipeline (suppression, caps, reconciliation)
+- Multi-lap overlay (up to 6)
+- Manual session conditions
 
 **Machine learning**
-- scikit-learn random forest + PyTorch Conv1d sequence model, same experiment
-- Expected throttle / brake / steering / speed bands on a 64-point grid
-- Section pace, whole-lap pace, pairwise faster-lap ranking
-- Grouped whole-lap splits (no row leakage), 20% immutable holdout, 3-fold CV
-- Guarded scenario ideas with a whole-lap veto and OOD abstention
-- Checksummed model registry (champion / challenger) in PostgreSQL
-- Helpful / not-helpful ratings on ideas (stored, not used for training)
+- sklearn random forest + PyTorch sequence model
+- Expected throttle / brake / steering / speed bands
+- Section pace, lap pace, pairwise ranking
+- Grouped whole-lap splits
+- Guarded scenario ideas with a whole-lap veto
+- Checksummed champion registry
+- Helpful / not-helpful ratings (not used for training)
 
 **Product UI**
-- React dashboard: live capture, session library, session detail, lap review, compare, analysis
-- Expected-band overlays and scenario cards on the corner view
-- FastAPI: sessions, laps, compare, capture, analysis, conditions, ratings, ML health
+- Dashboard, session library, session detail
+- Lap review, multi-lap compare, corner analysis
+- FastAPI for sessions, capture, analysis, ratings, ML health
 
 **Engineering**
-- PostgreSQL as source of truth, SQLite for tests, filesystem fallback for old artifacts
-- Alembic migrations, Docker Compose, GitHub Actions with a real Postgres service
-- 357 backend tests + 6 frontend tests, typecheck, production build
-- 500,001-row ingest benchmark: 37.8 s, 13,242 rows/s, 6.1 ms indexed range query
+- PostgreSQL + SQLite tests + filesystem fallback
+- Alembic, Docker Compose, GitHub Actions
+- 357 backend tests + 6 frontend tests
+- 500,001-row ingest benchmark
 
 ### Stack
 
@@ -82,42 +82,9 @@ flowchart LR
 
 ---
 
-## What the models actually do
-
-This is a supervised telemetry problem, not a racecraft chatbot. A champion model is trained offline on whole laps, registered with a checksum, and loaded at analysis time.
-
-**It predicts, for every resampled point on a lap:**
-
-- expected **throttle, brake, steering, and speed**, plus 10th–90th percentile bands (256 values per 64-point lap, targeting ~80% interval coverage)
-- **section pace** on 8 track segments and a **whole-lap time**
-- **pairwise ranking**: which of two comparable laps should be faster
-
-**It can then:**
-
-- overlay those expected bands on the driver’s actual traces in the React UI
-- perturb one driver-actionable lever at a time (brake onset, min-speed, throttle pickup, coasting, steering) within a 2–6% bound scaled to that driver’s consistency
-- veto any idea that helps a corner but is predicted to slow the full lap
-- abstain on wet / cold / high-wear laps and fall back to a labelled conservative cue
-
-Two families compete in the same experiment: a **64-tree random forest** with residual-quantile calibration, and a **32-dim Conv1d sequence net** (4 heads: profiles, section time, lap time, ranking). Selection uses 3-fold **grouped** CV on an 80/20 whole-lap split so no row from the same lap leaks into validation.
-
-| | |
-|---|---|
-| Real corpus | **260,031** native 100 Hz rows across Spa, Nürburgring GP, Imola |
-| Independent laps in that corpus | **30** complete source laps (5 / 10 / 15) — row count is not sample size |
-| Features | 13 numeric profile features, 3 identity embeddings, **21** section features, 4 condition channels |
-| Holdout / CV | 20% immutable whole-lap holdout, 3 grouped folds, seed `1729` |
-| Champion objective | 35% input MAE · 20% section time · 20% lap time · 15% ranking · 5% coverage · 5% event timing |
-| Typical offline champion | ~**0.82** pairwise faster-lap ranking · ~**0.80** band coverage · throttle/brake MAE ~**0.06–0.08** |
-| What it is not | Not causal, not a seconds-saved promise, not live/online learning |
-
-The 30-lap / 260k-row split is the whole point of the ML design: lots of high-rate samples, very few independent examples, so splits are by lap, not by row.
-
----
-
 ## Product tour
 
-Screenshots below are from a real Interlagos (Rio de Janeiro) Forza session running locally.
+Screenshots from a real Interlagos (Rio de Janeiro) Forza session.
 
 ### Dashboard
 
@@ -221,6 +188,35 @@ Two research detectors, `abrupt_brake_release` and `long_coasting_phase`, sit be
 
 ## Data and machine learning
 
+This is a supervised telemetry problem, not a racecraft chatbot. A champion is trained offline on whole laps, registered with a checksum, and loaded at analysis time.
+
+**It predicts, for every resampled point on a lap:**
+
+- expected **throttle, brake, steering, and speed**, plus 10th–90th percentile bands (256 values per 64-point lap, targeting ~80% interval coverage)
+- **section pace** on 8 track segments and a **whole-lap time**
+- **pairwise ranking**: which of two comparable laps should be faster
+
+**It can then:**
+
+- overlay those expected bands on the driver’s actual traces in the React UI
+- perturb one driver-actionable lever at a time (brake onset, min-speed, throttle pickup, coasting, steering) within a 2–6% bound scaled to that driver’s consistency
+- veto any idea that helps a corner but is predicted to slow the full lap
+- abstain on wet / cold / high-wear laps and fall back to a labelled conservative cue
+
+Two families compete in the same experiment: a **64-tree random forest** with residual-quantile calibration, and a **32-dim Conv1d sequence net** (4 heads: profiles, section time, lap time, ranking). Selection uses 3-fold **grouped** CV on an 80/20 whole-lap split so no row from the same lap leaks into validation.
+
+| | |
+|---|---|
+| Real corpus | **260,031** native 100 Hz rows across Spa, Nürburgring GP, Imola |
+| Independent laps in that corpus | **30** complete source laps (5 / 10 / 15) — row count is not sample size |
+| Features | 13 numeric profile features, 3 identity embeddings, **21** section features, 4 condition channels |
+| Holdout / CV | 20% immutable whole-lap holdout, 3 grouped folds, seed `1729` |
+| Champion objective | 35% input MAE · 20% section time · 20% lap time · 15% ranking · 5% coverage · 5% event timing |
+| Typical offline champion | ~**0.82** pairwise faster-lap ranking · ~**0.80** band coverage · throttle/brake MAE ~**0.06–0.08** |
+| What it is not | Not causal, not a seconds-saved promise, not live/online learning |
+
+The 30-lap / 260k-row split is the whole point of the ML design: lots of high-rate samples, very few independent examples, so splits are by lap, not by row.
+
 ### Real telemetry
 
 Three Assetto Corsa datasets are pinned to immutable Hugging Face revisions in [`src/ingest/manifests.py`](src/ingest/manifests.py): Spa-Francorchamps, Nürburgring GP, and Imola. Together they are **260,031 native rows at 100 Hz** and **30** complete source laps. Upstream lap counters are unusable, so laps are reconstructed from start/finish crossings with duration gates. Ambiguous ranges are rejected. Details: [`docs/data-sources.md`](docs/data-sources.md).
@@ -248,19 +244,16 @@ Every idea has a recommendation ID, model version, hypothesis, and driver baseli
 
 ---
 
-## Tech stack
+## What SlipStream does not claim
 
-| Layer | Choice |
-|---|---|
-| Language | Python 3.9+ (CI on 3.12), TypeScript |
-| API | FastAPI, Uvicorn, Pydantic |
-| Data | pandas, NumPy, PyArrow |
-| Storage | PostgreSQL 16, SQLite for tests, SQLAlchemy 2, Alembic, psycopg 3 |
-| ML | scikit-learn, PyTorch, joblib |
-| Ingest | Forza UDP, Hugging Face Hub |
-| Frontend | React 19, Vite, Tailwind CSS 4, Recharts, React Router |
-| Tests / CI | unittest, Vitest, GitHub Actions + PostgreSQL service |
-| Local infra | Docker Compose |
+These limits are intentional.
+
+- **Observational, not causal.** Expected bands summarize comparable laps. Scenario ideas never promise seconds saved.
+- **260,031 is a row count, not a lap count.** Independent laps after reconstruction are reported separately as `effective_laps`.
+- **The 500,001-row run is synthetic.** It proves ingest and query capacity. It is not upstream data.
+- **A champion won its offline run.** It is not auto-promoted. The holdout is reported, not used for selection.
+- **Ratings do not retrain.** Votes are stored with `training_eligible: false`. Outcome linking and online learning are future work: [`docs/verification.md`](docs/verification.md).
+- **Unsupported conditions abstain.** Wet, cold, high-wear, low support, or disagreement produce a labelled conservative cue.
 
 ---
 
@@ -352,19 +345,6 @@ cd frontend && npm test && npm run typecheck && npm run build
 The suite covers migration parity, idempotent upserts, lap reconstruction, grouped-split leakage, scenario vetoes, detector gating, rating persistence, and frontend request shaping. Fixtures are generated locally. Network downloads are not in the default suite.
 
 CI ([`.github/workflows/verification.yml`](.github/workflows/verification.yml)) provisions PostgreSQL 16, runs a migration round-trip, the backend suite, a benchmark smoke, then frontend test / typecheck / build.
-
----
-
-## What SlipStream does not claim
-
-These limits are intentional.
-
-- **Observational, not causal.** Expected bands summarize comparable laps. Scenario ideas never promise seconds saved.
-- **260,031 is a row count, not a lap count.** Independent laps after reconstruction are reported separately as `effective_laps`.
-- **The 500,001-row run is synthetic.** It proves ingest and query capacity. It is not upstream data.
-- **A champion won its offline run.** It is not auto-promoted. The holdout is reported, not used for selection.
-- **Ratings do not retrain.** Votes are stored with `training_eligible: false`. Outcome linking and online learning are future work: [`docs/verification.md`](docs/verification.md).
-- **Unsupported conditions abstain.** Wet, cold, high-wear, low support, or disagreement produce a labelled conservative cue.
 
 ---
 
